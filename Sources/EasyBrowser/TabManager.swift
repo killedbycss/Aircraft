@@ -19,6 +19,9 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, Scr
     public var loadedModCapabilities: Set<String> = []
 
     private let scriptBridge = ScriptBridge()
+    private var storageObserver: NSObjectProtocol?
+    private var userScriptRefreshTask: Task<Void, Never>?
+    private var downloadDestinations: [ObjectIdentifier: URL] = [:]
     private var webViewObservers: [UUID: [NSKeyValueObservation]] = [:]
     private var mobileBrowsing = false
     private static let sessionKey = "browserSessionV1"
@@ -41,6 +44,32 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, Scr
         scriptBridge.delegate = self
         restoreSession()
         refreshInstalledModCapabilities()
+        storageObserver = NotificationCenter.default.addObserver(forName: .modStorageDidChange, object: nil, queue: .main) { [weak self] notification in
+            // Готовим JS-строку здесь, чтобы не передавать Any между потоками.
+            let script = (notification.userInfo?["key"] as? String).flatMap {
+                ScriptBridge.syncScript(key: $0, value: notification.userInfo?["value"])
+            }
+            MainActor.assumeIsolated { self?.applyModStorageChange(syncScript: script) }
+        }
+    }
+
+    /// Хранилище модов изменилось (в любой вкладке любого окна): обновляем открытые
+    /// страницы сразу, а снимок для новых страниц — с небольшой задержкой.
+    private func applyModStorageChange(syncScript script: String?) {
+        if let script {
+            for tab in tabs { tab.webView?.evaluateJavaScript(script, completionHandler: nil) }
+        }
+        userScriptRefreshTask?.cancel()
+        userScriptRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            for tab in self.tabs {
+                guard let controller = tab.webView?.configuration.userContentController else { continue }
+                controller.removeAllUserScripts()
+                self.scriptBridge.configure(userContentController: controller)
+                self.loadCustomModifications(into: controller)
+            }
+        }
     }
 
     public var activeTab: TabModel? {
@@ -678,10 +707,12 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, Scr
         case "modStorageSet":
             if let key = payload["key"] as? String, let value = payload["value"] {
                 ScriptBridge.setStoredValue(value, for: key)
+                NotificationCenter.default.post(name: .modStorageDidChange, object: nil, userInfo: ["key": key, "value": value])
             }
         case "modStorageRemove":
             if let key = payload["key"] as? String {
                 ScriptBridge.removeStoredValue(for: key)
+                NotificationCenter.default.post(name: .modStorageDidChange, object: nil, userInfo: ["key": key])
             }
         case "registerCapability":
             if let capability = payload["capability"] as? String {

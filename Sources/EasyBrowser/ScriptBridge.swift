@@ -42,6 +42,15 @@ public final class ScriptBridge: NSObject, WKScriptMessageHandler {
               window.dispatchEvent(new CustomEvent("aircraft:storage", { detail: { key, removed: true } }));
             }
           });
+          // Native вызывает это, когда хранилище изменили в другой вкладке или окне,
+          // чтобы у всех открытых страниц были актуальные данные.
+          Object.defineProperty(window, "__aircraftStorageSync", {
+            value: (key, value, removed) => {
+              if (removed) delete values[key]; else values[key] = value;
+              window.dispatchEvent(new CustomEvent("aircraft:storage", { detail: { key, value, removed: !!removed, external: true } }));
+            },
+            configurable: false, enumerable: false, writable: false
+          });
           window.aircraft = Object.freeze({
             version: "0.2",
             post,
@@ -71,6 +80,18 @@ public final class ScriptBridge: NSObject, WKScriptMessageHandler {
         var storage = persistedStorage()
         storage[key] = value
         persist(storage)
+    }
+
+    /// JS-вызов, который обновляет значение хранилища в уже открытой странице.
+    nonisolated public static func syncScript(key: String, value: Any?) -> String? {
+        guard let keyData = try? JSONSerialization.data(withJSONObject: key, options: .fragmentsAllowed),
+              let keyJSON = String(data: keyData, encoding: .utf8) else { return nil }
+        guard let value else {
+            return "window.__aircraftStorageSync?.(\(keyJSON), null, true)"
+        }
+        guard let valueData = try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed),
+              let valueJSON = String(data: valueData, encoding: .utf8) else { return nil }
+        return "window.__aircraftStorageSync?.(\(keyJSON), \(valueJSON), false)"
     }
 
     public static func removeStoredValue(for key: String) {
