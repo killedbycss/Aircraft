@@ -992,6 +992,11 @@ public struct WorkspaceView: View {
     @Binding public var sidebarWidth: Double
     @AppStorage("tabScale") private var tabScale: Double = 1.0
 
+    @State private var hoverRevealed: Bool = false
+    @State private var hoverHideTask: Task<Void, Never>?
+    @State private var hostWindow = HostWindowRef()
+    /// Проверка положения курсора у края окна (надёжнее, чем onHover над WKWebView).
+    private let edgeHoverTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
     @State private var memoryBytes: UInt64 = 0
     @State private var resourceTimerConnection: AnyCancellable?
     private let resourceTimer = Timer.publish(every: 5, on: .main, in: .common)
@@ -1047,9 +1052,12 @@ public struct WorkspaceView: View {
                                 .frame(width: min(max(sidebarWidth, 140), 360))
                         }
                     }
+                    .overlay(alignment: .trailing) { hoverRevealLayer(side: "right") }
                 } else if tabPosition == "top" {
                     VStack(spacing: 0) {
-                        TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: true)
+                        if sidebarVisible {
+                            TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: true, showsTabBarToggle: true)
+                        }
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1059,6 +1067,7 @@ public struct WorkspaceView: View {
                             }
                         }
                     }
+                    .overlay(alignment: .top) { hoverRevealLayer(side: "top") }
                 } else if tabPosition == "bottom" {
                     VStack(spacing: 0) {
                         ZStack(alignment: .bottom) {
@@ -1091,6 +1100,7 @@ public struct WorkspaceView: View {
                             }
                         }
                     }
+                    .overlay(alignment: .leading) { hoverRevealLayer(side: "left") }
                 }
             }
         }
@@ -1123,12 +1133,132 @@ public struct WorkspaceView: View {
                 .padding(8)
             }
         }
+        .background(HostWindowReader(ref: hostWindow))
+        .onReceive(edgeHoverTimer) { _ in
+            checkEdgeHover()
+            updateWindowButtons()
+        }
+        .onDisappear { setWindowButtonsHidden(false) }
+        .onChange(of: sidebarVisible) { _, _ in
+            hoverHideTask?.cancel()
+            hoverHideTask = nil
+            hoverRevealed = false
+        }
         .onAppear { configureResourceTimer(enabled: resourceMonitoring) }
         .onChange(of: resourceMonitoring) { _, enabled in configureResourceTimer(enabled: enabled) }
         .onDisappear { resourceTimerConnection?.cancel(); resourceTimerConnection = nil }
         .onReceive(resourceTimer) { _ in
             guard resourceMonitoring else { return }
             memoryBytes = currentResidentMemory()
+        }
+    }
+
+    /// Скрытая панель вкладок выезжает поверх страницы, когда курсор подходит к краю окна,
+    /// и прячется обратно, когда курсор её покидает. Пока открыт Spotlight, панель видна всегда.
+    @ViewBuilder
+    private func hoverRevealLayer(side: String) -> some View {
+        if !sidebarVisible && side == "top" {
+            ZStack(alignment: .top) {
+                if hoverRevealed || showSearchModal {
+                    TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: true, showsTabBarToggle: true)
+                        .shadow(color: .black.opacity(0.18), radius: 12, y: 2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .animation(.easeOut(duration: 0.18), value: showSearchModal)
+        } else if !sidebarVisible {
+            ZStack(alignment: side == "right" ? .trailing : .leading) {
+                if hoverRevealed || showSearchModal {
+                    SidebarView(side: side)
+                        .frame(width: min(max(sidebarWidth, 140), 360))
+                        .frame(maxHeight: .infinity)
+                        .background(.regularMaterial)
+                        .overlay(alignment: side == "right" ? .leading : .trailing) {
+                            Divider()
+                        }
+                        .shadow(color: .black.opacity(0.18), radius: 12, x: side == "right" ? -2 : 2)
+                        .transition(.move(edge: side == "right" ? .trailing : .leading).combined(with: .opacity))
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .animation(.easeOut(duration: 0.18), value: showSearchModal)
+        }
+    }
+
+    /// Когда верхняя панель вкладок скрыта, прячем и кнопки окна («светофор»);
+    /// они появляются вместе с панелью при наведении или в Spotlight.
+    private func updateWindowButtons() {
+        let hide = tabGroupsEnabled && tabPosition == "top" && !sidebarVisible
+            && !hoverRevealed && !showSearchModal
+            && (hostWindow.window?.frame.width ?? 0) >= 600
+        setWindowButtonsHidden(hide)
+    }
+
+    private func setWindowButtonsHidden(_ hidden: Bool) {
+        guard let window = hostWindow.window else { return }
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type), button.isHidden != hidden else { continue }
+            button.isHidden = hidden
+        }
+    }
+
+    /// Раз в 50 мс смотрим, где курсор относительно окна: у края — показываем панель,
+    /// ушёл с панели — прячем с небольшой задержкой.
+    private func checkEdgeHover() {
+        guard tabGroupsEnabled, !sidebarVisible, !showSearchModal,
+              ["top", "left", "right"].contains(tabPosition),
+              let window = hostWindow.window, window.isKeyWindow, window.isVisible,
+              window.frame.width >= 600 else {
+            if hoverRevealed && !showSearchModal { setHoverReveal(false) }
+            return
+        }
+        let mouse = NSEvent.mouseLocation
+        let frame = window.frame
+        let edge: CGFloat = 8      // ширина «горячей зоны» внутри окна
+        let outside: CGFloat = 4   // небольшой запас за краем окна
+        let insideX = mouse.x >= frame.minX - outside && mouse.x <= frame.maxX + outside
+        let insideY = mouse.y >= frame.minY - outside && mouse.y <= frame.maxY + outside
+        let panelWidth = CGFloat(min(max(sidebarWidth, 140), 360))
+        let barHeight = CGFloat(42 * tabScale)
+
+        let atEdge: Bool
+        let overPanel: Bool
+        switch tabPosition {
+        case "top":
+            atEdge = insideX && mouse.y >= frame.maxY - edge && mouse.y <= frame.maxY + outside
+            overPanel = insideX && mouse.y >= frame.maxY - barHeight - 6 && mouse.y <= frame.maxY + outside
+        case "right":
+            atEdge = insideY && mouse.x >= frame.maxX - edge && mouse.x <= frame.maxX + outside
+            overPanel = insideY && mouse.x >= frame.maxX - panelWidth - 6 && mouse.x <= frame.maxX + outside
+        default:
+            atEdge = insideY && mouse.x <= frame.minX + edge && mouse.x >= frame.minX - outside
+            overPanel = insideY && mouse.x <= frame.minX + panelWidth + 6 && mouse.x >= frame.minX - outside
+        }
+
+        if atEdge || (hoverRevealed && overPanel) {
+            setHoverReveal(true)
+        } else if hoverRevealed {
+            setHoverReveal(false)
+        }
+    }
+
+    private func setHoverReveal(_ reveal: Bool) {
+        if reveal {
+            hoverHideTask?.cancel()
+            hoverHideTask = nil
+            guard !hoverRevealed else { return }
+            withAnimation(.easeOut(duration: 0.18)) { hoverRevealed = true }
+        } else {
+            // Уже ждём скрытия — не перезапускаем таймер на каждом тике.
+            guard hoverHideTask == nil else { return }
+            // Небольшая задержка, чтобы панель не мигала при случайном выходе курсора.
+            hoverHideTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeIn(duration: 0.15)) { hoverRevealed = false }
+                hoverHideTask = nil
+            }
         }
     }
 
@@ -1427,13 +1557,28 @@ public struct TopBarView: View {
     @Binding public var showSearchModal: Bool
     public var reservesWindowControls: Bool = true
     public var showsSettingsButton: Bool = true
+    /// Кнопка «Показать/скрыть вкладки» — для режима вкладок сверху.
+    public var showsTabBarToggle: Bool = false
     @Environment(TabManager.self) private var tabManager: TabManager
     @AppStorage("tabScale") private var tabScale: Double = 1.0
 
     public var body: some View {
         HStack(spacing: 0) {
             if reservesWindowControls {
-                Color.clear.frame(width: 128, height: 42 * tabScale)
+                // Место под кнопки управления окном (закрыть/свернуть/развернуть).
+                Color.clear.frame(width: 80, height: 42 * tabScale)
+            }
+
+            if showsTabBarToggle {
+                Button {
+                    NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
+                } label: {
+                    Image(systemName: "rectangle.topthird.inset.filled")
+                        .font(.system(size: 11 * tabScale, weight: .medium))
+                        .frame(width: 32 * tabScale, height: 42 * tabScale)
+                }
+                .buttonStyle(.plain)
+                .help("Показать/скрыть вкладки (⌃⌥S)")
             }
 
             if showsSettingsButton {
@@ -1455,10 +1600,12 @@ public struct TopBarView: View {
                             if tab.isPinned {
                                 PinnedTabStripItem(tab: tab, isActive: tab.id == tabManager.activeTabID)
                                     .frame(width: 46 * tabScale)
+                                    .padding(.vertical, 7 * tabScale)
                                     .id(tab.id)
                             } else {
                                 TabStripItem(tab: tab, showsURL: false, isActive: tab.id == tabManager.activeTabID)
                                     .frame(width: 170 * tabScale)
+                                    .padding(.vertical, 7 * tabScale)
                                     .id(tab.id)
                             }
                         }
@@ -1921,6 +2068,25 @@ private struct ModNavigationItems: View {
             if horizontal { Image(systemName: icon).frame(width: 32, height: 36).help(title) }
             else { Label(title, systemImage: icon).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).frame(height: 34) }
         }.buttonStyle(.plain).foregroundColor(.secondary)
+    }
+}
+
+/// Слабая ссылка на окно, в котором находится view.
+final class HostWindowRef {
+    weak var window: NSWindow?
+}
+
+private struct HostWindowReader: NSViewRepresentable {
+    let ref: HostWindowRef
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { ref.window = view.window }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { ref.window = nsView.window }
     }
 }
 
