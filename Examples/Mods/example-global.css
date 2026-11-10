@@ -1,0 +1,4 @@
+/* Глобальный пример. Для конкретного сайта используйте JS и проверку hostname. */
+::selection {
+  background: color-mix(in srgb, Highlight 70%, transparent);
+}
