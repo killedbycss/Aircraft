@@ -312,6 +312,7 @@ public struct SettingsView: View {
     @AppStorage("tabPosition") private var tabPosition: String = "left"
     @AppStorage("browserTheme") private var browserTheme: String = "system"
     @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
     @AppStorage("resourceMonitoring") private var resourceMonitoring: Bool = false
     @AppStorage("resourceLimitAlert") private var resourceLimitAlert: String = "none"
     @AppStorage("resourceLimitMB") private var resourceLimitMB: Double = 512
@@ -581,6 +582,12 @@ public struct SettingsView: View {
             }
             .disabled(!tabGroupsEnabled)
             Section("Скрытая панель") {
+                Picker("Скрывать верхнюю панель", selection: $topBarHideMode) {
+                    Text("Всегда").tag("always")
+                    Text("Только в оконном режиме").tag("windowed")
+                    Text("Никогда").tag("never")
+                }
+                .disabled(tabPosition != "top")
                 LabeledContent("Показать или скрыть", value: "⌃⌥S")
                 Text("Скрытая панель слева, справа или сверху сама выезжает, когда курсор подходит к краю окна, и видна, пока открыт Spotlight.")
                     .font(.system(size: 12))
@@ -1255,6 +1262,10 @@ public struct WorkspaceView: View {
     public var resourceLimitMB: Double
     @Binding public var sidebarWidth: Double
     @AppStorage("tabScale") private var tabScale: Double = 0.9
+    /// Когда скрывать верхнюю панель: always — всегда, windowed — только в окне
+    /// (в полноэкранном режиме панель видна), never — не скрывать.
+    @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
+    @State private var isFullScreen = false
 
     @State private var hoverRevealed: Bool = false
     @State private var hoverHideTask: Task<Void, Never>?
@@ -1319,8 +1330,9 @@ public struct WorkspaceView: View {
                     .overlay(alignment: .trailing) { hoverRevealLayer(side: "right") }
                 } else if tabPosition == "top" {
                     VStack(spacing: 0) {
-                        if sidebarVisible {
-                            TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: true, showsTabBarToggle: true)
+                        if !tabBarHidden {
+                            TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: !isFullScreen,
+                                       showsTabBarToggle: topBarHideMode != "never")
                         }
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
@@ -1399,6 +1411,8 @@ public struct WorkspaceView: View {
         }
         .background(HostWindowReader(ref: hostWindow))
         .onReceive(edgeHoverTimer) { _ in
+            let fullScreen = hostWindow.window?.styleMask.contains(.fullScreen) ?? false
+            if fullScreen != isFullScreen { isFullScreen = fullScreen }
             checkEdgeHover()
             updateWindowButtons()
         }
@@ -1421,10 +1435,10 @@ public struct WorkspaceView: View {
     /// и прячется обратно, когда курсор её покидает. Пока открыт Spotlight, панель видна всегда.
     @ViewBuilder
     private func hoverRevealLayer(side: String) -> some View {
-        if !sidebarVisible && side == "top" {
+        if tabBarHidden && side == "top" {
             ZStack(alignment: .top) {
                 if hoverRevealed || showSearchModal {
-                    TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: true, showsTabBarToggle: true)
+                    TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: !isFullScreen, showsTabBarToggle: true)
                         .shadow(color: .black.opacity(0.18), radius: 12, y: 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -1450,10 +1464,21 @@ public struct WorkspaceView: View {
         }
     }
 
+    /// Скрыта ли сейчас панель вкладок с учётом настройки «Скрывать верхнюю панель».
+    private var tabBarHidden: Bool {
+        guard !sidebarVisible else { return false }
+        guard tabPosition == "top" else { return true }
+        switch topBarHideMode {
+        case "never": return false
+        case "windowed": return !isFullScreen
+        default: return true
+        }
+    }
+
     /// Когда верхняя панель вкладок скрыта, прячем и кнопки окна («светофор»);
     /// они появляются вместе с панелью при наведении или в Spotlight.
     private func updateWindowButtons() {
-        let hide = tabGroupsEnabled && tabPosition == "top" && !sidebarVisible
+        let hide = tabGroupsEnabled && tabPosition == "top" && tabBarHidden && !isFullScreen
             && !hoverRevealed && !showSearchModal
             && (hostWindow.window?.frame.width ?? 0) >= 600
         setWindowButtonsHidden(hide)
@@ -1470,7 +1495,7 @@ public struct WorkspaceView: View {
     /// Раз в 50 мс смотрим, где курсор относительно окна: у края — показываем панель,
     /// ушёл с панели — прячем с небольшой задержкой.
     private func checkEdgeHover() {
-        guard tabGroupsEnabled, !sidebarVisible, !showSearchModal,
+        guard tabGroupsEnabled, tabBarHidden, !showSearchModal,
               ["top", "left", "right"].contains(tabPosition),
               let window = hostWindow.window, window.isKeyWindow, window.isVisible,
               window.frame.width >= 600 else {
