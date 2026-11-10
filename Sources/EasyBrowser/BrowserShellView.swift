@@ -313,6 +313,9 @@ public struct SettingsView: View {
     @AppStorage("browserTheme") private var browserTheme: String = "system"
     @AppStorage("tabScale") private var tabScale: Double = 0.9
     @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
+    @AppStorage(AdBlocker.enabledKey) private var adBlockEnabled: Bool = false
+    @AppStorage(AdBlocker.trackerEnabledKey) private var trackerBlockEnabled: Bool = false
+    @State private var adBlockAllowlist: [String] = []
     @AppStorage("resourceMonitoring") private var resourceMonitoring: Bool = false
     @AppStorage("resourceLimitAlert") private var resourceLimitAlert: String = "none"
     @AppStorage("resourceLimitMB") private var resourceLimitMB: Double = 512
@@ -713,8 +716,88 @@ public struct SettingsView: View {
 
     // MARK: Модификации
 
+    private var currentSiteHost: String? {
+        guard let url = tabManager.activeTab?.url, url.scheme == "http" || url.scheme == "https" else { return nil }
+        return AdBlocker.normalizedHost(url.host)
+    }
+
+    private var adBlockSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color.red.gradient, in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Блокировщик рекламы")
+                    Text("Не загружает рекламные сети и прячет рекламные блоки")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: $adBlockEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            .padding(.vertical, 2)
+            .onChange(of: adBlockEnabled) { _, _ in AdBlocker.shared.rebuild(reloadPages: true) }
+
+            HStack(spacing: 12) {
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color.indigo.gradient, in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Блокировщик трекеров")
+                    Text("Не загружает счётчики и пиксели слежки, убирает метки utm_*, fbclid, gclid из ссылок")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: $trackerBlockEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            .padding(.vertical, 2)
+            .onChange(of: trackerBlockEnabled) { _, _ in AdBlocker.shared.rebuild(reloadPages: true) }
+
+            if adBlockEnabled || trackerBlockEnabled {
+                if let host = currentSiteHost {
+                    Toggle("Отключить защиту на \(host)", isOn: Binding(
+                        get: { adBlockAllowlist.contains(host) },
+                        set: { allowed in
+                            AdBlocker.shared.setAllowed(allowed, host: host)
+                            adBlockAllowlist = AdBlocker.shared.allowlist
+                        }
+                    ))
+                }
+                ForEach(adBlockAllowlist.filter { $0 != currentSiteHost }, id: \.self) { host in
+                    HStack {
+                        Image(systemName: "checkmark.shield").foregroundStyle(.secondary)
+                        Text(host).lineLimit(1)
+                        Spacer()
+                        Button { AdBlocker.shared.setAllowed(false, host: host); adBlockAllowlist = AdBlocker.shared.allowlist } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Снова включить защиту на этом сайте")
+                    }
+                }
+            }
+        } header: {
+            Text("Защита")
+        } footer: {
+            Text("Списки из \(AdBlocker.blockedDomains.count) рекламных сетей и \(AdBlocker.trackerDomains.count) трекеров встроены в Aircraft и работают без интернета. Если сайт ломается, отключите на нём защиту.")
+                .foregroundStyle(.secondary)
+        }
+        .onAppear { adBlockAllowlist = AdBlocker.shared.allowlist }
+    }
+
     private var modsPane: some View {
         Form {
+            adBlockSection
             Section {
                 ForEach(BundledMod.all) { mod in
                     let installedFile = customScripts.first { ModCatalog.family(for: $0) == mod.id }

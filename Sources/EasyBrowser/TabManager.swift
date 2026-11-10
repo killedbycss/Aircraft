@@ -20,6 +20,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
     private let scriptBridge = ScriptBridge()
     private var storageObserver: NSObjectProtocol?
+    private var adBlockObserver: NSObjectProtocol?
     private var userScriptRefreshTask: Task<Void, Never>?
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]
     /// Из какой вкладки открыта вкладка — чтобы новые вставали подряд справа от «родителя».
@@ -53,6 +54,20 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             }
             MainActor.assumeIsolated { self?.applyModStorageChange(syncScript: script) }
         }
+        adBlockObserver = NotificationCenter.default.addObserver(forName: .adBlockRulesDidChange, object: nil, queue: .main) { [weak self] notification in
+            let reload = notification.userInfo?["reload"] as? Bool ?? false
+            MainActor.assumeIsolated { self?.applyAdBlockRules(reloadActiveTab: reload) }
+        }
+    }
+
+    /// Правила блокировщика рекламы изменились: переподключаем их во всех вкладках.
+    private func applyAdBlockRules(reloadActiveTab: Bool) {
+        for tab in tabs {
+            guard let controller = tab.webView?.configuration.userContentController else { continue }
+            controller.removeAllContentRuleLists()
+            AdBlocker.shared.attach(to: controller)
+        }
+        if reloadActiveTab, let webView = activeTab?.webView, webView.url != nil { webView.reload() }
     }
 
     /// Хранилище модов изменилось (в любой вкладке любого окна): обновляем открытые
@@ -489,6 +504,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         config.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
         scriptBridge.configure(userContentController: config.userContentController)
         loadCustomModifications(into: config.userContentController)
+        AdBlocker.shared.attach(to: config.userContentController)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         // This exposes the real WebKit inspector in Safari's Develop menu.
@@ -799,6 +815,23 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 decisionHandler(.cancel, preferences)
             }
             return
+        }
+        // Защита от трекеров: убираем метки отслеживания (utm_*, fbclid, gclid…) из адреса страницы.
+        if navigationAction.targetFrame?.isMainFrame == true,
+           navigationAction.request.httpMethod == "GET",
+           let url = navigationAction.request.url,
+           url.scheme == "http" || url.scheme == "https" {
+            let cleaned: URL? = MainActor.assumeIsolated {
+                AdBlocker.shared.blocksTrackers && !AdBlocker.shared.isAllowed(host: url.host)
+                    ? AdBlocker.cleanedURL(url) : nil
+            }
+            if let cleaned {
+                MainActor.assumeIsolated {
+                    decisionHandler(.cancel, preferences)
+                    webView.load(URLRequest(url: cleaned))
+                }
+                return
+            }
         }
         let policy: WKNavigationActionPolicy = navigationAction.shouldPerformDownload ? .download : .allow
         MainActor.assumeIsolated { decisionHandler(policy, preferences) }
