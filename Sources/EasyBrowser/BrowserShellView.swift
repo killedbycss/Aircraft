@@ -28,45 +28,13 @@ public struct BrowserShellView: View {
     @AppStorage("resourceResetShortcut") private var resourceResetShortcut: String = "control-option-r"
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 200
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @State private var windowWidth: CGFloat = 1000
 
     public init() {}
 
     public var body: some View {
-        ZStack {
-            Group {
-                switch currentState {
-                case .home:
-                    HomeView(currentState: $currentState, showSearchModal: $showSearchModal)
-                case .settings:
-                    SettingsView(currentState: $currentState)
-                case .workspace:
-                    WorkspaceView(
-                        sidebarVisible: $sidebarVisible,
-                        showSearchModal: $showSearchModal,
-                        tabGroupsEnabled: tabGroupsEnabled,
-                        tabPosition: tabPosition,
-                        resourceMonitoring: resourceMonitoring,
-                        resourceLimitAlert: resourceLimitAlert,
-                        resourceLimitMB: resourceLimitMB,
-                        sidebarWidth: $sidebarWidth
-                    )
-                }
-            }
-            .allowsHitTesting(!showSearchModal)
-
-            if showSearchModal {
-                SearchModalView(isPresented: $showSearchModal, currentState: $currentState, initialQuery: spotlightSeed)
-                    .id(spotlightRequestID)
-                    .zIndex(100)
-            }
-
-        }
-        .frame(minWidth: 360, minHeight: 520)
-        .ignoresSafeArea(.container, edges: .top)
-        .background(Color(NSColor.windowBackgroundColor))
-        .background(WindowTabbingDisabler(windowNumber: $windowNumber))
-        .fontWeight(.medium)
-        .preferredColorScheme(browserTheme == "dark" ? .dark : (browserTheme == "light" ? .light : nil))
+        moreHandlers(styledContent
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { notification in
             guard isTargetWindow(notification) else { return }
             showSearchModal = false
@@ -94,6 +62,72 @@ public struct BrowserShellView: View {
             currentState = .workspace
             presentSpotlight(query: tabManager.activeTab?.url?.absoluteString ?? "")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .selectTabByNumber)) { notification in
+            selectTabByNumber(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleCurrentURLSpotlight)) { notification in
+            toggleCurrentURLSpotlight(notification)
+        })
+    }
+
+    /// Окно с общим оформлением (размер, фон, тема).
+    private var styledContent: some View {
+        windowContent
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
+            .onChange(of: tabManager.activeTabID) { _, _ in refreshSpotlightForActiveTab() }
+            .frame(minWidth: 360, minHeight: 520)
+            .ignoresSafeArea(.container, edges: .top)
+            .background(Color(NSColor.windowBackgroundColor))
+            .background(WindowTabbingDisabler(windowNumber: $windowNumber))
+            .fontWeight(.medium)
+            .preferredColorScheme(browserTheme == "dark" ? .dark : (browserTheme == "light" ? .light : nil))
+    }
+
+    private func toggleCurrentURLSpotlight(_ notification: Notification) {
+        guard isTargetWindow(notification) else { return }
+        if showSearchModal {
+            showSearchModal = false
+        } else {
+            currentState = .workspace
+            presentSpotlight(query: tabManager.activeTab?.url?.absoluteString ?? "")
+        }
+    }
+
+    private var windowContent: some View {
+        ZStack {
+            Group {
+                switch currentState {
+                case .home:
+                    HomeView(currentState: $currentState, showSearchModal: $showSearchModal)
+                case .settings:
+                    SettingsView(currentState: $currentState)
+                case .workspace:
+                    WorkspaceView(
+                        sidebarVisible: $sidebarVisible,
+                        showSearchModal: $showSearchModal,
+                        tabGroupsEnabled: tabGroupsEnabled,
+                        tabPosition: tabPosition,
+                        resourceMonitoring: resourceMonitoring,
+                        resourceLimitAlert: resourceLimitAlert,
+                        resourceLimitMB: resourceLimitMB,
+                        sidebarWidth: $sidebarWidth
+                    )
+                }
+            }
+
+            if showSearchModal {
+                // Spotlight не перекрывает панель вкладок, чтобы по ним можно было кликать.
+                SearchModalView(isPresented: $showSearchModal, currentState: $currentState, initialQuery: spotlightSeed)
+                    .id(spotlightRequestID)
+                    .padding(spotlightTabInsets)
+                    .zIndex(100)
+            }
+        }
+    }
+
+    /// Остальные обработчики команд — отдельно, чтобы компилятору было проще.
+    private func moreHandlers<V: View>(_ view: V) -> some View {
+        view
         .onReceive(NotificationCenter.default.publisher(for: .showEmptySpotlight)) { notification in
             guard isTargetWindow(notification) else { return }
             currentState = .workspace
@@ -126,6 +160,36 @@ public struct BrowserShellView: View {
             tabManager.createNewTab()
             currentState = .workspace
             showSearchModal = false
+        }
+    }
+
+    /// ⌘1…⌘8 — вкладка по номеру, ⌘9 — последняя.
+    private func selectTabByNumber(_ notification: Notification) {
+        guard isTargetWindow(notification),
+              let number = notification.userInfo?["number"] as? Int,
+              !tabManager.tabs.isEmpty else { return }
+        let index = number == 9 ? tabManager.tabs.count - 1 : number - 1
+        guard tabManager.tabs.indices.contains(index) else { return }
+        currentState = .workspace
+        tabManager.selectTab(id: tabManager.tabs[index].id)
+    }
+
+    /// При переключении вкладки в открытом Spotlight подставляем её URL.
+    private func refreshSpotlightForActiveTab() {
+        guard showSearchModal else { return }
+        presentSpotlight(query: tabManager.activeTab?.url?.absoluteString ?? "")
+    }
+
+    /// Место, которое занимает панель вкладок; Spotlight его не закрывает.
+    private var spotlightTabInsets: EdgeInsets {
+        guard currentState == .workspace, tabGroupsEnabled, windowWidth >= 600 else { return EdgeInsets() }
+        let sidebar = min(max(sidebarWidth, 140), 360)
+        let bar = 42 * tabScale
+        switch tabPosition {
+        case "top": return EdgeInsets(top: bar, leading: 0, bottom: 0, trailing: 0)
+        case "bottom": return EdgeInsets(top: 0, leading: 0, bottom: bar, trailing: 0)
+        case "right": return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: sidebar)
+        default: return EdgeInsets(top: 0, leading: sidebar, bottom: 0, trailing: 0)
         }
     }
 

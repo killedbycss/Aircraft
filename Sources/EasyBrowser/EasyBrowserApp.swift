@@ -4,6 +4,8 @@ import AppKit
 @MainActor
 final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
     private var keyboardMonitor: Any?
+    private var modifierMonitor: Any?
+    private var commandShiftArmed = false
     private var additionalWindows: [NSWindowController] = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -15,7 +17,27 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
             window.tabbingMode = .disallowed
             window.tabbingIdentifier = ""
         }
+        // ⌘⇧ (без других клавиш) — Spotlight с URL текущей вкладки.
+        // Срабатывает при отпускании, если между нажатием и отпусканием не было
+        // другой клавиши, чтобы не мешать сочетаниям вроде ⌘⇧N.
+        modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            guard let self else { return event }
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            if modifiers == [.command, .shift] {
+                self.commandShiftArmed = true
+            } else if modifiers.isEmpty || modifiers == [.command] || modifiers == [.shift] {
+                // Отпущена одна из клавиш ⌘/⇧ — сочетание завершено.
+                if self.commandShiftArmed {
+                    self.commandShiftArmed = false
+                    NotificationCenter.default.post(name: .toggleCurrentURLSpotlight, object: NSApp.keyWindow)
+                }
+            } else {
+                self.commandShiftArmed = false
+            }
+            return event
+        }
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.commandShiftArmed = false
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let key = event.charactersIgnoringModifiers?.lowercased()
             let target = NSApp.keyWindow
@@ -24,8 +46,15 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: .closeActiveTab, object: target)
                 return nil
             }
-            if key == "t", modifiers == [.command] {
-                NotificationCenter.default.post(name: .showCurrentURLSpotlight, object: target)
+            // ⌘1…⌘8 — вкладка по номеру, ⌘9 — последняя вкладка.
+            if modifiers == [.command], let key, key.count == 1, let number = Int(key), (1...9).contains(number) {
+                NotificationCenter.default.post(name: .selectTabByNumber, object: target, userInfo: ["number": number])
+                return nil
+            }
+            // ⌘T — новая пустая вкладка с открытым Spotlight.
+            // keyCode 17 — физическая клавиша T, чтобы работало и в русской раскладке.
+            if key == "t" || event.keyCode == 17, modifiers == [.command] {
+                NotificationCenter.default.post(name: .createHomeTab, object: target)
                 return nil
             }
             if key == "r", modifiers == [.command] {
@@ -65,6 +94,7 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
+        if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
     }
 
     private func matchesResourceReset(key: String?, modifiers: NSEvent.ModifierFlags) -> Bool {
@@ -192,6 +222,9 @@ extension Notification.Name {
     static let showWorkspace = Notification.Name("ShowWorkspace")
     static let closeActiveTab = Notification.Name("CloseActiveTab")
     static let showCurrentURLSpotlight = Notification.Name("ShowCurrentURLSpotlight")
+    static let modStorageDidChange = Notification.Name("ModStorageDidChange")
+    static let selectTabByNumber = Notification.Name("SelectTabByNumber")
+    static let toggleCurrentURLSpotlight = Notification.Name("ToggleCurrentURLSpotlight")
     static let showEmptySpotlight = Notification.Name("ShowEmptySpotlight")
     static let createHomeTab = Notification.Name("CreateHomeTab")
     static let createHomeTabWithoutSpotlight = Notification.Name("CreateHomeTabWithoutSpotlight")
