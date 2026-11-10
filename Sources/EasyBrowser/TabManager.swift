@@ -593,7 +593,14 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             }
         }
 
-        webViewObservers[tabID] = [titleObs, urlObs, loadingObs]
+        let progressObs = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor [weak self] in
+                guard let self = self, let index = self.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+                self.tabs[index].loadProgress = webView.estimatedProgress
+            }
+        }
+
+        webViewObservers[tabID] = [titleObs, urlObs, loadingObs, progressObs]
     }
 
     private func removeObservations(for tabID: UUID) {

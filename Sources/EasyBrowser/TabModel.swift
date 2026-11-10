@@ -7,6 +7,8 @@ public struct TabModel: Identifiable, Equatable {
     public var title: String
     public var url: URL?
     public var isLoading: Bool
+    /// Прогресс загрузки страницы от 0 до 1 (WKWebView.estimatedProgress).
+    public var loadProgress: Double = 0
     public var isHibernated: Bool
     public var isPinned: Bool
     public var pinnedURL: URL?
@@ -43,6 +45,7 @@ public struct TabModel: Identifiable, Equatable {
         lhs.title == rhs.title &&
         lhs.url == rhs.url &&
         lhs.isLoading == rhs.isLoading &&
+        lhs.loadProgress == rhs.loadProgress &&
         lhs.isHibernated == rhs.isHibernated &&
         lhs.isPinned == rhs.isPinned &&
         lhs.pinnedURL == rhs.pinnedURL &&
