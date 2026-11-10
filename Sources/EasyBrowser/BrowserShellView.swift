@@ -28,7 +28,7 @@ public struct BrowserShellView: View {
     @AppStorage("resourceResetShortcut") private var resourceResetShortcut: String = "control-option-r"
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 200
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
     @State private var windowWidth: CGFloat = 1000
 
     public init() {}
@@ -311,7 +311,7 @@ public struct SettingsView: View {
     @AppStorage("tabGroupsEnabled") private var tabGroupsEnabled: Bool = false
     @AppStorage("tabPosition") private var tabPosition: String = "left"
     @AppStorage("browserTheme") private var browserTheme: String = "system"
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
     @AppStorage("resourceMonitoring") private var resourceMonitoring: Bool = false
     @AppStorage("resourceLimitAlert") private var resourceLimitAlert: String = "none"
     @AppStorage("resourceLimitMB") private var resourceLimitMB: Double = 512
@@ -1125,7 +1125,7 @@ private struct BrowserPane: View {
 }
 
 private struct WindowPageTopBand: View {
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
     @Environment(TabManager.self) private var tabManager: TabManager
 
     var body: some View {
@@ -1146,7 +1146,7 @@ public struct WorkspaceView: View {
     public var resourceLimitAlert: String
     public var resourceLimitMB: Double
     @Binding public var sidebarWidth: Double
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
 
     @State private var hoverRevealed: Bool = false
     @State private var hoverHideTask: Task<Void, Never>?
@@ -1441,7 +1441,7 @@ public struct WorkspaceView: View {
 private struct MobileSidebarView: View {
     @Binding var sidebarVisible: Bool
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1489,7 +1489,7 @@ private struct MobileSidebarView: View {
 private struct MobileTabRow: View {
     let tab: TabModel
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
     @State private var copied = false
 
     var body: some View {
@@ -1618,7 +1618,7 @@ public struct SingleTabHeader: View {
     @Binding public var showSearchModal: Bool
     @Environment(TabManager.self) private var tabManager: TabManager
     @State private var isHoveringTitle = false
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
 
     public var body: some View {
         ZStack {
@@ -1716,7 +1716,7 @@ public struct TopBarView: View {
     /// Кнопка «Показать/скрыть вкладки» — для режима вкладок сверху.
     public var showsTabBarToggle: Bool = false
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
 
     public var body: some View {
         HStack(spacing: 0) {
@@ -1799,7 +1799,7 @@ private struct PinnedTabStripItem: View {
     let tab: TabModel
     let isActive: Bool
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
     @State private var copied = false
 
     var body: some View {
@@ -1852,7 +1852,7 @@ private struct TabStripItem: View {
     @Environment(TabManager.self) private var tabManager: TabManager
     @State private var isHovering = false
     @State private var copied = false
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1922,7 +1922,7 @@ private struct TabStripItem: View {
 public struct SidebarView: View {
     let side: String
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
     @State private var copiedTabID: UUID?
 
     public var body: some View {
