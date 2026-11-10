@@ -22,6 +22,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     private var storageObserver: NSObjectProtocol?
     private var userScriptRefreshTask: Task<Void, Never>?
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]
+    /// Из какой вкладки открыта вкладка — чтобы новые вставали подряд справа от «родителя».
+    private var openedFrom: [UUID: UUID] = [:]
     private var webViewObservers: [UUID: [NSKeyValueObservation]] = [:]
     private var mobileBrowsing = false
     private static let sessionKey = "browserSessionV1"
@@ -96,7 +98,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     // MARK: - Управление вкладками
 
     @discardableResult
-    public func createNewTab(url: URL? = nil, selectNewTab: Bool = true) -> UUID {
+    public func createNewTab(url: URL? = nil, selectNewTab: Bool = true, afterTabID: UUID? = nil) -> UUID {
         let previouslyFocusedID = activeTabID
         let webView = url == nil ? nil : createWebView()
 
@@ -112,7 +114,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             webView: webView
         )
 
-        tabs.append(newTab)
+        insertTab(newTab, after: afterTabID)
         if let webView { setupObservations(for: newTab.id, webView: webView) }
 
         if selectNewTab || activeTabID == nil {
@@ -150,6 +152,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
 
         removeObservations(for: id)
+        openedFrom.removeValue(forKey: id)
         let tabToClose = tabs[index]
         tabToClose.webView?.stopLoading()
         tabToClose.webView?.navigationDelegate = nil
@@ -594,11 +597,25 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         MainActor.assumeIsolated {
-            createPopupTab(configuration: configuration, url: navigationAction.request.url)
+            createPopupTab(configuration: configuration, url: navigationAction.request.url,
+                           openerTabID: tabs.first(where: { $0.webView === webView })?.id)
         }
     }
 
-    private func createPopupTab(configuration: WKWebViewConfiguration, url: URL?) -> WKWebView {
+    /// Вкладка, открытая со страницы, встаёт сразу справа от неё (после уже открытых
+    /// ею вкладок), а не в конец списка.
+    private func insertTab(_ tab: TabModel, after openerID: UUID?) {
+        guard let openerID, let openerIndex = tabs.firstIndex(where: { $0.id == openerID }) else {
+            tabs.append(tab)
+            return
+        }
+        var index = openerIndex + 1
+        while index < tabs.count, openedFrom[tabs[index].id] == openerID { index += 1 }
+        tabs.insert(tab, at: index)
+        openedFrom[tab.id] = openerID
+    }
+
+    private func createPopupTab(configuration: WKWebViewConfiguration, url: URL?, openerTabID: UUID?) -> WKWebView {
         let popup = WKWebView(frame: .zero, configuration: configuration)
         popup.isInspectable = ModCatalog.isInstalled("aircraft-devtools-webextensions", in: installedModFiles())
         popup.underPageBackgroundColor = .windowBackgroundColor
@@ -608,7 +625,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
         let tabURL = (url?.absoluteString.isEmpty == false ? url : nil) ?? URL(string: "about:blank")
         let tab = TabModel(title: "Новая вкладка", url: tabURL, isLoading: true, webView: popup)
-        tabs.append(tab)
+        insertTab(tab, after: openerTabID)
         setupObservations(for: tab.id, webView: popup)
         activeTabID = tab.id
         saveSession()
@@ -772,6 +789,17 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         // <a download>, blob:- и data:-ссылки на файл — скачиваем, а не открываем.
+        // ⌘-клик по ссылке — открыть её в фоновой вкладке справа от текущей.
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.modifierFlags.contains(.command),
+           let url = navigationAction.request.url {
+            MainActor.assumeIsolated {
+                let openerID = tabs.first(where: { $0.webView === webView })?.id
+                createNewTab(url: url, selectNewTab: false, afterTabID: openerID)
+                decisionHandler(.cancel, preferences)
+            }
+            return
+        }
         let policy: WKNavigationActionPolicy = navigationAction.shouldPerformDownload ? .download : .allow
         MainActor.assumeIsolated { decisionHandler(policy, preferences) }
     }
