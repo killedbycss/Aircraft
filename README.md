@@ -1,4 +1,4 @@
-# Aircraft 0.1
+# Aircraft 0.3 alpha
 
 Экспериментальный браузер для macOS на SwiftUI и WebKit.
 
@@ -58,6 +58,6 @@ swift test
 
 ## Распространение
 
-Исходный код удобно публиковать в GitHub-репозитории, а собранный `Aircraft-0.1.zip` прикладывать к GitHub Release с тегом `v0.1`.
+Исходный код удобно публиковать в GitHub-репозитории, а собранный `Aircraft-0.3-alpha.zip` прикладывать к GitHub Release с тегом `v0.3-alpha`.
 
 Локальная сборка подписывается ad-hoc. Для распространения без предупреждений Gatekeeper потребуется сертификат Apple Developer ID, hardened runtime и notarization.
