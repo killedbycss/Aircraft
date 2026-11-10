@@ -73,7 +73,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, Scr
 
         let newTab = TabModel(
             id: UUID(),
-            title: url == nil ? "Главная" : "Новая вкладка",
+            title: "Новая вкладка",
             url: url,
             isLoading: url != nil,
             isHibernated: url != nil && webView == nil,

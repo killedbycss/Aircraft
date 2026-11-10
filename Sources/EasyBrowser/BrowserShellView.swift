@@ -961,7 +961,9 @@ private struct BrowserPane: View {
         if let tabID, let tab = tabManager.tabs.first(where: { $0.id == tabID }), tab.url != nil {
             WebContainerView(activeWebView: tabManager.webView(for: tabID))
         } else {
-            HomeView(currentState: .constant(.workspace), showSearchModal: $showSearchModal)
+            // Новая вкладка без адреса — просто пустая страница.
+            Color(NSColor.windowBackgroundColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -1697,7 +1699,7 @@ public struct SidebarView: View {
                                     .font(.system(size: 12 * tabScale))
                                     .lineLimit(1)
                                     .foregroundColor(tab.id == tabManager.activeTabID ? .primary : .secondary)
-                                Text(tab.url?.host ?? "Главная")
+                                Text(tab.url?.host ?? "Новая вкладка")
                                     .font(.system(size: 9 * tabScale))
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
@@ -1792,7 +1794,7 @@ private struct CurrentURLLabel: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(tabManager.activeTab?.url?.absoluteString ?? "Главная")
+            Text(tabManager.activeTab?.url?.absoluteString ?? "Новая вкладка")
                 .font(.system(size: fontSize, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -2101,6 +2103,17 @@ public struct SearchModalView: View {
                         }
                         .onSubmit { processSearch() }
                     if !urlSystemActive {
+                        HStack(spacing: 2) {
+                            spotlightNavButton("chevron.left", help: "Назад (⌘[)", enabled: tabManager.canGoBack) {
+                                tabManager.goBackActiveTab()
+                            }
+                            spotlightNavButton("chevron.right", help: "Вперёд (⌘])", enabled: tabManager.canGoForward) {
+                                tabManager.goForwardActiveTab()
+                            }
+                            spotlightNavButton("arrow.clockwise", help: "Перезагрузить (⌘R)", enabled: tabManager.activeTab?.url != nil) {
+                                tabManager.reloadActiveTab()
+                            }
+                        }
                         Button(action: { isPresented = false }) {
                             Image(systemName: "xmark.circle.fill").foregroundColor(.gray)
                         }
@@ -2144,6 +2157,24 @@ public struct SearchModalView: View {
         }
         isPresented = false
         currentState = .workspace
+    }
+
+    /// Кнопка навигации в Spotlight: выполняет действие на активной вкладке и закрывает Spotlight.
+    private func spotlightNavButton(_ systemName: String, help: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            isPresented = false
+            currentState = .workspace
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(enabled ? .primary : .gray.opacity(0.5))
+        .disabled(!enabled)
+        .help(help)
     }
 
     private var selectedPrefixLabel: String {
