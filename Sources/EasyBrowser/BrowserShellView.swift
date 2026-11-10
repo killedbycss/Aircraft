@@ -335,300 +335,24 @@ public struct SettingsView: View {
         URLSystemStore.prefixes(json: customURLPrefixesJSON, legacyPrefix: customURLPrefix)
     }
 
+    @State private var selectedSection: SettingsPane = .general
+
     public var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Spacer()
-                Text("Настройки среды")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.primary)
-                Spacer()
-
-                Button(action: { currentState = .workspace }) {
-                    Image(systemName: "xmark")
-                        .foregroundColor(.gray)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .padding(.trailing, 16)
+        HStack(spacing: 0) {
+            settingsSidebar
+                .frame(width: 210)
+            Divider()
+            VStack(spacing: 0) {
+                settingsHeader
+                paneContent
+                    .frame(maxWidth: 680, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity)
             }
-            .frame(height: 50)
-            .padding(.leading, 76)
-            .background(VisualEffectView(material: .headerView, blendingMode: .withinWindow))
-
-            // Settings Grid
-            ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 240), alignment: .topLeading)],
-                    alignment: .leading,
-                    spacing: 32
-                ) {
-                // Column 1
-                VStack(alignment: .leading, spacing: 20) {
-                    SettingsSection(title: "Внешний вид") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Панель вкладок").font(.system(size: 11)).foregroundColor(.gray)
-                            CapsuleButton(text: tabGroupsEnabled ? "активно" : "выключено", isActive: tabGroupsEnabled) {
-                                tabGroupsEnabled.toggle()
-                            }
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Позиция вкладок").font(.system(size: 11)).foregroundColor(.gray)
-                            HStack(spacing: 4) {
-                                CapsuleButton(text: "лев", isActive: tabGroupsEnabled && tabPosition == "left") { tabPosition = "left" }
-                                CapsuleButton(text: "прав", isActive: tabGroupsEnabled && tabPosition == "right") { tabPosition = "right" }
-                                CapsuleButton(text: "верх", isActive: tabGroupsEnabled && tabPosition == "top") { tabPosition = "top" }
-                                CapsuleButton(text: "низ", isActive: tabGroupsEnabled && tabPosition == "bottom") { tabPosition = "bottom" }
-                            }
-                            .disabled(!tabGroupsEnabled)
-                            .opacity(tabGroupsEnabled ? 1 : 0.45)
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Загрузки").font(.system(size: 11)).foregroundColor(.gray)
-                            Text(downloadFolderPath.isEmpty ? "Будет выбрано при первой загрузке" : URL(fileURLWithPath: downloadFolderPath).lastPathComponent)
-                                .font(.system(size: 11)).lineLimit(1)
-                            Button("Выбрать папку…") { chooseDownloadFolder() }
-                                .font(.system(size: 11))
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Тема").font(.system(size: 11)).foregroundColor(.gray)
-                            HStack(spacing: 4) {
-                                CapsuleButton(text: "системная", isActive: browserTheme == "system") { browserTheme = "system" }
-                                CapsuleButton(text: "светлая", isActive: browserTheme == "light") { browserTheme = "light" }
-                                CapsuleButton(text: "тёмная", isActive: browserTheme == "dark") { browserTheme = "dark" }
-                            }
-                            if tabManager.modCapabilities.contains("themes") {
-                                Text("Фон сайтов").font(.system(size: 11)).foregroundColor(.gray)
-                                ColorPicker("Выбрать цвет", selection: $modBackgroundColor, supportsOpacity: true)
-                                    .labelsHidden()
-                                    .onChange(of: modBackgroundColor) { _, value in selectModBackground(value) }
-                            }
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Размер группы вкладок: \(Int(tabScale * 100))%").font(.system(size: 11)).foregroundColor(.gray)
-                            Slider(value: $tabScale, in: 0.8...1.5, step: 0.05)
-                                .disabled(!tabGroupsEnabled)
-                                .opacity(tabGroupsEnabled ? 1 : 0.45)
-                        }
-                    }
-                }
-
-                // Column 2
-                VStack(alignment: .leading, spacing: 20) {
-                    SettingsSection(title: "Ресурсы") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Отображать строку потребления").font(.system(size: 11)).foregroundColor(.gray)
-                            CapsuleButton(text: resourceMonitoring ? "вкл" : "нет", isActive: resourceMonitoring) {
-                                resourceMonitoring.toggle()
-                            }
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Предупреждать о высоком потреблении").font(.system(size: 11)).foregroundColor(.gray)
-                            HStack(spacing: 6) {
-                                CapsuleButton(text: "нет", isActive: resourceLimitAlert == "none") { resourceLimitAlert = "none" }
-                                CapsuleButton(text: "лимит", isActive: resourceLimitAlert == "limit") { resourceLimitAlert = "limit" }
-                            }
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Лимит памяти: \(Int(resourceLimitMB)) MB").font(.system(size: 11)).foregroundColor(.gray)
-                            Slider(value: $resourceLimitMB, in: 128...2048, step: 64)
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Сброс ресурсов").font(.system(size: 11)).foregroundColor(.gray)
-                            Picker("Что сбрасывать", selection: $resourceResetScope) {
-                                Text("Фоновые вкладки").tag("backgroundTabs")
-                                Text("Все вкладки из памяти").tag("allTabs")
-                                Text("Веб-кэш и данные сайтов").tag("webCache")
-                            }
-                            .labelsHidden()
-                            Picker("Сочетание", selection: $resourceResetShortcut) {
-                                Text("⌃⌥R").tag("control-option-r")
-                                Text("⌃⌥⇧R").tag("control-option-shift-r")
-                                Text("⌘⌥⇧R").tag("command-option-shift-r")
-                            }
-                            .labelsHidden()
-                            Button("Сбросить сейчас") {
-                                tabManager.resetResources(scope: resourceResetScope)
-                            }
-                            .font(.system(size: 11))
-                        }
-                    }
-                }
-
-                // Column 3
-                VStack(alignment: .leading, spacing: 20) {
-                    SettingsSection(title: "Продвинутый функционал") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Добавить свои модификации").font(.system(size: 11)).foregroundColor(.gray)
-                            
-                            ForEach(customScripts, id: \.self) { script in
-                                CapsuleButton(text: script, isActive: true) {}
-                                    .contextMenu {
-                                        Button("Удалить") {
-                                            removeModification(named: script)
-                                        }
-                                    }
-                            }
-
-                            CapsuleButton(text: "добавить файл +", isActive: false) {
-                                openScriptPanel()
-                            }
-                            Text("Добавить модификацию")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                            VStack(alignment: .leading, spacing: 5) {
-                                if !ModCatalog.isInstalled("aircraft-devtools-webextensions", in: customScripts) { CapsuleButton(text: "Web Inspector + WebExtensions", isActive: false) {
-                                    installBundledModification(named: "aircraft-devtools-webextensions")
-                                } }
-                                if !ModCatalog.isInstalled("aircraft-color-themes", in: customScripts) { CapsuleButton(text: "Цветные темы", isActive: false) {
-                                    installBundledModification(named: "aircraft-color-themes")
-                                } }
-                                if !ModCatalog.isInstalled("aircraft-tab-history-accounts", in: customScripts) { CapsuleButton(text: "История и аккаунты", isActive: false) {
-                                    installBundledModification(named: "aircraft-tab-history-accounts")
-                                } }
-                                if !ModCatalog.isInstalled("aircraft-split-view", in: customScripts) { CapsuleButton(text: "Разделение экрана", isActive: false) {
-                                    installBundledModification(named: "aircraft-split-view")
-                                } }
-                            }
-                            HStack(spacing: 6) {
-                                CapsuleButton(text: "гайд SDK", isActive: false) {
-                                    openModGuide()
-                                }
-                                CapsuleButton(text: "папка модов", isActive: false) {
-                                    openModsFolder()
-                                }
-                            }
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Настроить url-систему").font(.system(size: 11)).foregroundColor(.gray)
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    TextField("домен, например github.io", text: $editableURLPrefix)
-                                        .textFieldStyle(PlainTextFieldStyle())
-                                        .font(.system(size: 11))
-                                        .padding(6)
-                                        .background(Color(NSColor.controlBackgroundColor))
-                                        .cornerRadius(6)
-                                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.2)))
-                                        .onSubmit {
-                                            saveURLPrefix()
-                                        }
-                                    Button(editingURLPrefixIndex == nil ? "Добавить" : "Сохранить") {
-                                        saveURLPrefix()
-                                    }
-                                    .font(.system(size: 11))
-                                    if editingURLPrefixIndex != nil {
-                                        Button("Отмена") { cancelURLPrefixEditing() }
-                                            .font(.system(size: 11))
-                                    }
-                                }
-                                if let urlValidationMessage {
-                                    Text(urlValidationMessage)
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.red)
-                                }
-                                ForEach(Array(urlPrefixes.enumerated()), id: \.offset) { index, prefix in
-                                    HStack(spacing: 4) {
-                                        Text(prefix)
-                                            .font(.system(size: 11))
-                                            .lineLimit(1)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        Button(action: { beginEditingURLPrefix(at: index) }) {
-                                            Image(systemName: "pencil")
-                                                .font(.system(size: 9, weight: .medium))
-                                                .frame(width: 22, height: 22)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .help("Редактировать url-систему")
-                                        Button(action: { removeURLPrefix(at: index) }) {
-                                            Image(systemName: "xmark")
-                                                .font(.system(size: 9, weight: .medium))
-                                                .frame(width: 22, height: 22)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .help("Удалить url-систему")
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .frame(height: 30)
-                                    .background(Color(NSColor.controlBackgroundColor))
-                                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                                }
-                            }
-                        }
-                    }
-                    SettingsSection(title: "") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Поисковая система").font(.system(size: 11)).foregroundColor(.gray)
-                            Picker("Шаблон", selection: $searchTemplatePreset) {
-                                ForEach(SearchEngineOption.popular) { engine in
-                                    Text(engine.title).tag(engine.id)
-                                }
-                                Divider()
-                                Text("Свой шаблон").tag("custom")
-                            }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .onChange(of: searchTemplatePreset) { _, preset in
-                                guard let engine = SearchEngineOption.popular.first(where: { $0.id == preset }) else { return }
-                                customSearchURL = engine.queryURL
-                                searchEngine = engine.id
-                                searchURLValidationMessage = nil
-                            }
-                            HStack(spacing: 6) {
-                                TextField("https://search.example/?q={query}", text: $customSearchURL)
-                                    .textFieldStyle(.plain)
-                                    .font(.system(size: 11))
-                                    .padding(6)
-                                    .background(Color(NSColor.controlBackgroundColor))
-                                    .cornerRadius(6)
-                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.2)))
-                                    .onSubmit { selectCustomSearch() }
-                                Button("Сохранить") { selectCustomSearch() }
-                                    .font(.system(size: 11))
-                            }
-                            if let searchURLValidationMessage {
-                                Text(searchURLValidationMessage)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.red)
-                            }
-                            Text("Используйте {query}, %s или %@ для поискового запроса")
-                                .font(.system(size: 9))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                }
-                .padding(.top, 24)
-                .padding(.horizontal, 24)
-                .frame(maxWidth: 1080, alignment: .leading)
-            }
-
-            Spacer()
-
-            Text("Версия 0.1")
-                .foregroundColor(.gray)
-                .font(.system(size: 12))
-                .padding(.bottom, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.windowBackgroundColor))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(colorScheme == .dark ? Color(red: 0.09, green: 0.09, blue: 0.09) : .white)
+        .onExitCommand { currentState = .workspace }
         .onAppear {
             loadCustomModifications()
             modBackgroundColor = Color(aircraftHex: UserDefaults.standard.string(forKey: "aircraftModBackgroundHex") ?? "#00000000")
@@ -643,6 +367,347 @@ public struct SettingsView: View {
                 customSearchURL = SearchEngineOption.queryTemplate(for: searchEngine, customURL: customSearchURL)
             }
         }
+    }
+
+    // MARK: Каркас
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Место под кнопки управления окном.
+            Color.clear.frame(height: 44)
+            Text("Настройки")
+                .font(.system(size: 20, weight: .bold))
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+            ForEach(SettingsPane.allCases) { pane in
+                SettingsSidebarRow(pane: pane, isSelected: selectedSection == pane) {
+                    selectedSection = pane
+                }
+            }
+            Spacer()
+            Text("Aircraft \(appVersion)")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 14)
+        }
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
+    }
+
+    private var settingsHeader: some View {
+        HStack(spacing: 10) {
+            Image(systemName: selectedSection.icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(selectedSection.tint.gradient, in: RoundedRectangle(cornerRadius: 7))
+            Text(selectedSection.title)
+                .font(.system(size: 17, weight: .semibold))
+            Spacer()
+            Button("Готово") { currentState = .workspace }
+                .keyboardShortcut(.cancelAction)
+                .controlSize(.large)
+        }
+        .padding(.horizontal, 24)
+        .frame(height: 56)
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private var paneContent: some View {
+        switch selectedSection {
+        case .general: generalPane
+        case .tabs: tabsPane
+        case .search: searchPane
+        case .resources: resourcesPane
+        case .mods: modsPane
+        case .shortcuts: shortcutsPane
+        }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
+    // MARK: Основные
+
+    private var generalPane: some View {
+        Form {
+            Section("Оформление") {
+                Picker("Тема", selection: $browserTheme) {
+                    Text("Системная").tag("system")
+                    Text("Светлая").tag("light")
+                    Text("Тёмная").tag("dark")
+                }
+                .pickerStyle(.segmented)
+                if tabManager.modCapabilities.contains("themes") {
+                    ColorPicker("Фон сайтов", selection: $modBackgroundColor, supportsOpacity: true)
+                        .onChange(of: modBackgroundColor) { _, value in selectModBackground(value) }
+                }
+            }
+            Section("Загрузки") {
+                LabeledContent("Папка для загрузок") {
+                    HStack(spacing: 8) {
+                        Text(downloadFolderPath.isEmpty ? "Загрузки" : URL(fileURLWithPath: downloadFolderPath).lastPathComponent)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Button("Выбрать…") { chooseDownloadFolder() }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+
+    // MARK: Вкладки
+
+    private var tabsPane: some View {
+        Form {
+            Section {
+                Toggle("Панель вкладок", isOn: $tabGroupsEnabled)
+            } footer: {
+                Text("Если выключено, показывается только текущая вкладка.")
+                    .foregroundStyle(.secondary)
+            }
+            Section("Расположение") {
+                Picker("Где показывать вкладки", selection: $tabPosition) {
+                    Text("Слева").tag("left")
+                    Text("Справа").tag("right")
+                    Text("Сверху").tag("top")
+                    Text("Снизу").tag("bottom")
+                }
+                .pickerStyle(.segmented)
+                LabeledContent("Размер панели") {
+                    HStack(spacing: 10) {
+                        Slider(value: $tabScale, in: 0.8...1.5, step: 0.05)
+                            .frame(width: 180)
+                        Text("\(Int(tabScale * 100))%")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+            }
+            .disabled(!tabGroupsEnabled)
+            Section("Скрытая панель") {
+                LabeledContent("Показать или скрыть", value: "⌃⌥S")
+                Text("Скрытая панель слева, справа или сверху сама выезжает, когда курсор подходит к краю окна, и видна, пока открыт Spotlight.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .disabled(!tabGroupsEnabled)
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+
+    // MARK: Поиск и URL
+
+    private var searchPane: some View {
+        Form {
+            Section {
+                Picker("Поисковая система", selection: $searchTemplatePreset) {
+                    ForEach(SearchEngineOption.popular) { engine in
+                        Text(engine.title).tag(engine.id)
+                    }
+                    Divider()
+                    Text("Свой шаблон").tag("custom")
+                }
+                .onChange(of: searchTemplatePreset) { _, preset in
+                    guard let engine = SearchEngineOption.popular.first(where: { $0.id == preset }) else { return }
+                    customSearchURL = engine.queryURL
+                    searchEngine = engine.id
+                    searchURLValidationMessage = nil
+                }
+                HStack(spacing: 8) {
+                    TextField("Шаблон", text: $customSearchURL, prompt: Text("https://search.example/?q={query}"))
+                        .onSubmit { selectCustomSearch() }
+                    Button("Сохранить") { selectCustomSearch() }
+                }
+                if let searchURLValidationMessage {
+                    Text(searchURLValidationMessage).foregroundStyle(.red).font(.system(size: 12))
+                }
+            } header: {
+                Text("Поиск")
+            } footer: {
+                Text("В шаблоне используйте {query}, %s или %@ на месте запроса.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                HStack(spacing: 8) {
+                    TextField("Домен", text: $editableURLPrefix, prompt: Text("например, github.io"))
+                        .onSubmit { saveURLPrefix() }
+                    Button(editingURLPrefixIndex == nil ? "Добавить" : "Сохранить") { saveURLPrefix() }
+                    if editingURLPrefixIndex != nil {
+                        Button("Отмена") { cancelURLPrefixEditing() }
+                    }
+                }
+                if let urlValidationMessage {
+                    Text(urlValidationMessage).foregroundStyle(.red).font(.system(size: 12))
+                }
+                ForEach(Array(urlPrefixes.enumerated()), id: \.offset) { index, prefix in
+                    HStack {
+                        Image(systemName: "link").foregroundStyle(.secondary)
+                        Text(prefix).lineLimit(1)
+                        Spacer()
+                        Button { beginEditingURLPrefix(at: index) } label: { Image(systemName: "pencil") }
+                            .buttonStyle(.borderless)
+                            .help("Редактировать")
+                        Button { removeURLPrefix(at: index) } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                            .help("Удалить")
+                    }
+                }
+            } header: {
+                Text("URL-системы")
+            } footer: {
+                Text("В Spotlight нажмите Tab, чтобы открыть адрес внутри выбранной системы.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+
+    // MARK: Ресурсы
+
+    private var resourcesPane: some View {
+        Form {
+            Section("Мониторинг") {
+                Toggle("Показывать строку потребления памяти", isOn: $resourceMonitoring)
+                Picker("Предупреждать", selection: $resourceLimitAlert) {
+                    Text("Никогда").tag("none")
+                    Text("При превышении лимита").tag("limit")
+                }
+                LabeledContent("Лимит памяти") {
+                    HStack(spacing: 10) {
+                        Slider(value: $resourceLimitMB, in: 128...2048, step: 64)
+                            .frame(width: 180)
+                        Text("\(Int(resourceLimitMB)) МБ")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 64, alignment: .trailing)
+                    }
+                }
+                .disabled(resourceLimitAlert != "limit")
+            }
+            Section("Сброс ресурсов") {
+                Picker("Что сбрасывать", selection: $resourceResetScope) {
+                    Text("Фоновые вкладки").tag("backgroundTabs")
+                    Text("Все вкладки из памяти").tag("allTabs")
+                    Text("Веб-кэш и данные сайтов").tag("webCache")
+                }
+                Picker("Сочетание клавиш", selection: $resourceResetShortcut) {
+                    Text("⌃⌥R").tag("control-option-r")
+                    Text("⌃⌥⇧R").tag("control-option-shift-r")
+                    Text("⌘⌥⇧R").tag("command-option-shift-r")
+                }
+                HStack {
+                    Spacer()
+                    Button("Сбросить сейчас") { tabManager.resetResources(scope: resourceResetScope) }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+
+    // MARK: Модификации
+
+    private var modsPane: some View {
+        Form {
+            Section {
+                ForEach(BundledMod.all) { mod in
+                    let installedFile = customScripts.first { ModCatalog.family(for: $0) == mod.id }
+                    HStack(spacing: 12) {
+                        Image(systemName: mod.icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(mod.tint.gradient, in: RoundedRectangle(cornerRadius: 8))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(mod.title)
+                            Text(mod.subtitle)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let installedFile {
+                            Button("Удалить", role: .destructive) { removeModification(named: installedFile) }
+                        } else {
+                            Button("Установить") { installBundledModification(named: mod.id) }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            } header: {
+                Text("Встроенные")
+            }
+
+            Section {
+                let ownScripts = customScripts.filter { ModCatalog.family(for: $0) == nil }
+                if ownScripts.isEmpty {
+                    Text("Своих модификаций пока нет.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(ownScripts, id: \.self) { script in
+                    HStack {
+                        Image(systemName: script.hasSuffix(".css") ? "paintbrush" : "curlybraces")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20)
+                        Text(script).lineLimit(1)
+                        Spacer()
+                        Button { removeModification(named: script) } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                            .help("Удалить в корзину")
+                    }
+                }
+                HStack {
+                    Button("Добавить файл…") { openScriptPanel() }
+                    Spacer()
+                    Button("Гайд по SDK") { openModGuide() }
+                    Button("Открыть папку") { openModsFolder() }
+                }
+            } header: {
+                Text("Свои модификации")
+            } footer: {
+                Text("Файлы .js и .css подключаются ко всем страницам.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+
+    // MARK: Сочетания клавиш
+
+    private var shortcutsPane: some View {
+        Form {
+            Section("Вкладки") {
+                LabeledContent("Новая вкладка", value: "⌘T  ·  ⌘N")
+                LabeledContent("Закрыть вкладку", value: "⌘W")
+                LabeledContent("Вкладка по номеру", value: "⌘1 … ⌘8")
+                LabeledContent("Последняя вкладка", value: "⌘9")
+                LabeledContent("Показать/скрыть панель вкладок", value: "⌃⌥S")
+            }
+            Section("Навигация") {
+                LabeledContent("Spotlight с адресом вкладки", value: "⌘⇧ (нажать и отпустить)")
+                LabeledContent("Адрес или поиск", value: "⌘L")
+                LabeledContent("Назад / вперёд", value: "⌘[  ·  ⌘]")
+                LabeledContent("Обновить", value: "⌘R")
+            }
+            Section("Окно") {
+                LabeledContent("Новое окно", value: "⌘⇧N")
+                LabeledContent("Настройки", value: "⌘,")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 
     private func loadCustomModifications() {
@@ -834,6 +899,97 @@ public struct SettingsView: View {
             NSSound.beep()
         }
     }
+}
+
+// MARK: - Settings helpers
+
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case general, tabs, search, resources, mods, shortcuts
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: "Основные"
+        case .tabs: "Вкладки"
+        case .search: "Поиск и URL"
+        case .resources: "Ресурсы"
+        case .mods: "Модификации"
+        case .shortcuts: "Сочетания клавиш"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: "gearshape.fill"
+        case .tabs: "square.on.square"
+        case .search: "magnifyingglass"
+        case .resources: "memorychip.fill"
+        case .mods: "puzzlepiece.extension.fill"
+        case .shortcuts: "keyboard.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .general: .gray
+        case .tabs: .blue
+        case .search: .orange
+        case .resources: .green
+        case .mods: .purple
+        case .shortcuts: .indigo
+        }
+    }
+}
+
+private struct SettingsSidebarRow: View {
+    let pane: SettingsPane
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: pane.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(pane.tint.gradient, in: RoundedRectangle(cornerRadius: 6))
+                Text(pane.title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 6)
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(isSelected ? Color.accentColor : Color.primary.opacity(isHovering ? 0.06 : 0))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+}
+
+struct BundledMod: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let icon: String
+    let tint: Color
+
+    static let all: [BundledMod] = [
+        .init(id: "aircraft-tab-history-accounts", title: "История и аккаунты",
+              subtitle: "История переходов и сайты со входом · ⌘Y", icon: "clock.arrow.circlepath", tint: .blue),
+        .init(id: "aircraft-split-view", title: "Разделение экрана",
+              subtitle: "Две вкладки рядом в одном окне", icon: "rectangle.split.2x1", tint: .teal),
+        .init(id: "aircraft-color-themes", title: "Цветные темы",
+              subtitle: "Свой цвет фона сайтов", icon: "paintpalette.fill", tint: .pink),
+        .init(id: "aircraft-devtools-webextensions", title: "Web Inspector + WebExtensions",
+              subtitle: "Консоль, журнал fetch и мост chrome.* · ⌘⌥I", icon: "hammer.fill", tint: .gray)
+    ]
 }
 
 // MARK: - Workspace View
