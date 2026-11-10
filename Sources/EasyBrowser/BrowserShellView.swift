@@ -335,7 +335,7 @@ public struct SettingsView: View {
         URLSystemStore.prefixes(json: customURLPrefixesJSON, legacyPrefix: customURLPrefix)
     }
 
-    @State private var selectedSection: SettingsPane = .general
+    @State private var selectedSection: SettingsPane = .browser
 
     public var body: some View {
         HStack(spacing: 0) {
@@ -418,6 +418,7 @@ public struct SettingsView: View {
     @ViewBuilder
     private var paneContent: some View {
         switch selectedSection {
+        case .browser: browserPane
         case .general: generalPane
         case .tabs: tabsPane
         case .search: searchPane
@@ -427,8 +428,95 @@ public struct SettingsView: View {
         }
     }
 
-    private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    private var appVersion: String { AppInfo.displayVersion }
+
+    // MARK: Браузер
+
+    @State private var isDefaultBrowser = false
+
+    private var browserPane: some View {
+        Form {
+            Section {
+                HStack(spacing: 16) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 72, height: 72)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Aircraft")
+                            .font(.system(size: 22, weight: .bold))
+                        Text("Версия \(AppInfo.displayVersion) (сборка \(AppInfo.build))")
+                            .foregroundStyle(.secondary)
+                        Text("Лёгкий браузер на WebKit с модификациями")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 6)
+            }
+
+            Section {
+                LabeledContent("Браузер по умолчанию") {
+                    if isDefaultBrowser {
+                        Label("Aircraft", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button("Сделать браузером по умолчанию") { makeDefaultBrowser() }
+                    }
+                }
+            } footer: {
+                Text("macOS попросит подтвердить выбор.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Сведения") {
+                LabeledContent("Движок", value: "WebKit \(AppInfo.webKitVersion)")
+                LabeledContent("macOS", value: ProcessInfo.processInfo.operatingSystemVersionString)
+                LabeledContent("SDK модификаций", value: "Aircraft Mod SDK 0.2")
+                LabeledContent("Идентификатор", value: Bundle.main.bundleIdentifier ?? "—")
+            }
+
+            Section("Данные") {
+                HStack {
+                    Text("Модификации и настройки хранятся локально на этом Mac.")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Открыть папку") { openDataFolder() }
+                }
+                HStack {
+                    Spacer()
+                    Link("Проект на GitHub", destination: URL(string: "https://github.com/killedbycss/Aircraft")!)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .onAppear { refreshDefaultBrowserState() }
+    }
+
+    private func refreshDefaultBrowserState() {
+        guard let probe = URL(string: "https://example.com"),
+              let handler = NSWorkspace.shared.urlForApplication(toOpen: probe) else {
+            isDefaultBrowser = false
+            return
+        }
+        isDefaultBrowser = handler.standardizedFileURL == Bundle.main.bundleURL.standardizedFileURL
+    }
+
+    private func makeDefaultBrowser() {
+        let appURL = Bundle.main.bundleURL
+        NSWorkspace.shared.setDefaultApplication(at: appURL, toOpenURLsWithScheme: "http") { _ in
+            NSWorkspace.shared.setDefaultApplication(at: appURL, toOpenURLsWithScheme: "https") { _ in
+                Task { @MainActor in refreshDefaultBrowserState() }
+            }
+        }
+    }
+
+    private func openDataFolder() {
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        let folder = support.appendingPathComponent("aircraft", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
     }
 
     // MARK: Основные
@@ -903,12 +991,30 @@ public struct SettingsView: View {
 
 // MARK: - Settings helpers
 
+enum AppInfo {
+    static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3"
+    }
+    static var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "dev"
+    }
+    /// Стадия выпуска (alpha, beta…) из Info.plist.
+    static var stage: String {
+        Bundle.main.object(forInfoDictionaryKey: "AircraftReleaseStage") as? String ?? "alpha"
+    }
+    static var displayVersion: String { stage.isEmpty ? version : "\(version) \(stage)" }
+    static var webKitVersion: String {
+        Bundle(for: WKWebView.self).object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+}
+
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, tabs, search, resources, mods, shortcuts
+    case browser, general, tabs, search, resources, mods, shortcuts
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .browser: "Браузер"
         case .general: "Основные"
         case .tabs: "Вкладки"
         case .search: "Поиск и URL"
@@ -920,6 +1026,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .browser: "safari.fill"
         case .general: "gearshape.fill"
         case .tabs: "square.on.square"
         case .search: "magnifyingglass"
@@ -931,6 +1038,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     var tint: Color {
         switch self {
+        case .browser: .cyan
         case .general: .gray
         case .tabs: .blue
         case .search: .orange
