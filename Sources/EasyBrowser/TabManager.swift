@@ -6,7 +6,7 @@ import AppKit
 /// Менеджер вкладок браузера, хранящий и управляющий инстансами WKWebView
 @MainActor
 @Observable
-public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, ScriptBridgeDelegate {
+public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, ScriptBridgeDelegate {
     public var tabs: [TabModel] = []
     public var activeTabID: UUID?
     public var isReaderModeActive: Bool = false
@@ -582,22 +582,108 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, Scr
         webViewObservers.removeValue(forKey: tabID)
     }
 
-    // MARK: - WKUIDelegate (Перехват target="_blank")
+    // MARK: - WKUIDelegate (новые окна и диалоги)
 
+    /// target="_blank" и window.open(): создаём вкладку с настоящим WKWebView из переданной
+    /// конфигурации, чтобы у страницы сохранились window.opener и postMessage
+    /// (нужно для входа через всплывающие окна и для страниц, которые пишут в новое окно сами).
     nonisolated public func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        Task { @MainActor in
-            if let targetURL = navigationAction.request.url {
-                self.createNewTab(url: targetURL, selectNewTab: true)
-            } else {
-                self.createNewTab(url: nil, selectNewTab: true)
+        MainActor.assumeIsolated {
+            createPopupTab(configuration: configuration, url: navigationAction.request.url)
+        }
+    }
+
+    private func createPopupTab(configuration: WKWebViewConfiguration, url: URL?) -> WKWebView {
+        let popup = WKWebView(frame: .zero, configuration: configuration)
+        popup.isInspectable = ModCatalog.isInstalled("aircraft-devtools-webextensions", in: installedModFiles())
+        popup.underPageBackgroundColor = .windowBackgroundColor
+        configureContentMode(for: popup)
+        popup.navigationDelegate = self
+        popup.uiDelegate = self
+
+        let tabURL = (url?.absoluteString.isEmpty == false ? url : nil) ?? URL(string: "about:blank")
+        let tab = TabModel(title: "Новая вкладка", url: tabURL, isLoading: true, webView: popup)
+        tabs.append(tab)
+        setupObservations(for: tab.id, webView: popup)
+        activeTabID = tab.id
+        saveSession()
+        return popup
+    }
+
+    /// window.close() из страницы.
+    nonisolated public func webViewDidClose(_ webView: WKWebView) {
+        MainActor.assumeIsolated {
+            if let tab = tabs.first(where: { $0.webView === webView }) { closeTab(id: tab.id) }
+        }
+    }
+
+    nonisolated public func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor @Sendable () -> Void
+    ) {
+        MainActor.assumeIsolated {
+            let alert = Self.makePageAlert(message: message, frame: frame)
+            alert.addButton(withTitle: "OK")
+            Self.present(alert, over: webView) { _ in completionHandler() }
+        }
+    }
+
+    nonisolated public func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor @Sendable (Bool) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            let alert = Self.makePageAlert(message: message, frame: frame)
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Отмена")
+            Self.present(alert, over: webView) { response in completionHandler(response == .alertFirstButtonReturn) }
+        }
+    }
+
+    nonisolated public func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor @Sendable (String?) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            let alert = Self.makePageAlert(message: prompt, frame: frame)
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+            field.stringValue = defaultText ?? ""
+            alert.accessoryView = field
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Отмена")
+            alert.window.initialFirstResponder = field
+            Self.present(alert, over: webView) { response in
+                completionHandler(response == .alertFirstButtonReturn ? field.stringValue : nil)
             }
         }
-        return nil
+    }
+
+    private static func makePageAlert(message: String, frame: WKFrameInfo) -> NSAlert {
+        let alert = NSAlert()
+        let host = frame.securityOrigin.host
+        alert.messageText = host.isEmpty ? "Сообщение страницы" : "Сайт \(host) сообщает"
+        alert.informativeText = message
+        return alert
+    }
+
+    private static func present(_ alert: NSAlert, over webView: WKWebView, completion: @escaping (NSApplication.ModalResponse) -> Void) {
+        if let window = webView.window {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(alert.runModal())
+        }
     }
 
     // MARK: - WKNavigationDelegate
@@ -675,6 +761,93 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, Scr
                 self.tabs[index].isLoading = false
             }
         }
+    }
+
+    // MARK: - Загрузки
+
+    nonisolated public func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        preferences: WKWebpagePreferences,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
+    ) {
+        // <a download>, blob:- и data:-ссылки на файл — скачиваем, а не открываем.
+        let policy: WKNavigationActionPolicy = navigationAction.shouldPerformDownload ? .download : .allow
+        MainActor.assumeIsolated { decisionHandler(policy, preferences) }
+    }
+
+    nonisolated public func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+    ) {
+        var policy: WKNavigationResponsePolicy = navigationResponse.canShowMIMEType ? .allow : .download
+        if let http = navigationResponse.response as? HTTPURLResponse,
+           let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
+           disposition.lowercased().hasPrefix("attachment") {
+            policy = .download
+        }
+        MainActor.assumeIsolated { decisionHandler(policy) }
+    }
+
+    nonisolated public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        MainActor.assumeIsolated { download.delegate = self }
+    }
+
+    nonisolated public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        MainActor.assumeIsolated { download.delegate = self }
+    }
+
+    nonisolated public func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            let destination = Self.downloadDestination(for: suggestedFilename)
+            if let destination { downloadDestinations[ObjectIdentifier(download)] = destination }
+            completionHandler(destination)
+        }
+    }
+
+    nonisolated public func downloadDidFinish(_ download: WKDownload) {
+        MainActor.assumeIsolated {
+            guard let url = downloadDestinations.removeValue(forKey: ObjectIdentifier(download)) else { return }
+            // Значок «Загрузки» в Dock подпрыгивает, как в Safari.
+            DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: url.path)
+        }
+    }
+
+    nonisolated public func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        MainActor.assumeIsolated {
+            downloadDestinations.removeValue(forKey: ObjectIdentifier(download))
+            NSSound.beep()
+        }
+    }
+
+    /// Папка из настроек или «Загрузки»; при совпадении имени добавляется « (2)», « (3)»…
+    private static func downloadDestination(for suggestedFilename: String) -> URL? {
+        let fileManager = FileManager.default
+        let configured = UserDefaults.standard.string(forKey: "downloadFolderPath") ?? ""
+        let folder = configured.isEmpty
+            ? fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            : URL(fileURLWithPath: configured, isDirectory: true)
+        guard let folder else { return nil }
+        try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        let cleanName = suggestedFilename.replacingOccurrences(of: "/", with: "-")
+        let name = cleanName.isEmpty ? "download" : cleanName
+        var candidate = folder.appendingPathComponent(name)
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        var number = 2
+        while fileManager.fileExists(atPath: candidate.path) {
+            let numbered = ext.isEmpty ? "\(base) (\(number))" : "\(base) (\(number)).\(ext)"
+            candidate = folder.appendingPathComponent(numbered)
+            number += 1
+        }
+        return candidate
     }
 
     // MARK: - ScriptBridgeDelegate
