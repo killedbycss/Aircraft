@@ -75,6 +75,9 @@ public struct BrowserShellView: View {
         windowContent
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
             .onChange(of: tabManager.activeTabID) { _, _ in refreshSpotlightForActiveTab() }
+            .onChange(of: showSearchModal) { _, shown in if !shown { keepSpotlightOnEmptyTab() } }
+            .onChange(of: currentState) { _, _ in keepSpotlightOnEmptyTab() }
+            .onAppear { keepSpotlightOnEmptyTab() }
             .frame(minWidth: 360, minHeight: 520)
             .ignoresSafeArea(.container, edges: .top)
             .background(Color(NSColor.windowBackgroundColor))
@@ -174,10 +177,29 @@ public struct BrowserShellView: View {
         tabManager.selectTab(id: tabManager.tabs[index].id)
     }
 
-    /// При переключении вкладки в открытом Spotlight подставляем её URL.
+    /// При переключении вкладки в открытом Spotlight подставляем её URL;
+    /// на пустую вкладку Spotlight открывается сам.
     private func refreshSpotlightForActiveTab() {
-        guard showSearchModal else { return }
-        presentSpotlight(query: tabManager.activeTab?.url?.absoluteString ?? "")
+        if showSearchModal {
+            presentSpotlight(query: tabManager.activeTab?.url?.absoluteString ?? "")
+        } else {
+            keepSpotlightOnEmptyTab()
+        }
+    }
+
+    /// Пустая новая вкладка (без адреса) — на ней всегда открыт Spotlight.
+    private var activeTabIsEmpty: Bool {
+        guard let tab = tabManager.activeTab else { return false }
+        return tab.url == nil
+    }
+
+    private func keepSpotlightOnEmptyTab() {
+        guard currentState == .workspace, activeTabIsEmpty, !showSearchModal else { return }
+        // Следующий цикл: даём закрыться текущему Spotlight и смениться вкладке.
+        DispatchQueue.main.async {
+            guard currentState == .workspace, activeTabIsEmpty, !showSearchModal else { return }
+            presentSpotlight(query: "")
+        }
     }
 
     /// Место, которое занимает панель вкладок; Spotlight его не закрывает.
@@ -1079,6 +1101,23 @@ public struct SettingsView: View {
     }
 }
 
+// MARK: - Анимация вкладок
+
+extension Animation {
+    /// Перестроение списка вкладок при открытии и закрытии.
+    static let tabList = Animation.spring(response: 0.28, dampingFraction: 0.86)
+}
+
+extension AnyTransition {
+    /// Новая вкладка проявляется, закрытая — уезжает к краю панели, сжимаясь и растворяясь.
+    static func tabClose(edge: Edge) -> AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.92)),
+            removal: .move(edge: edge).combined(with: .opacity).combined(with: .scale(scale: 0.85))
+        )
+    }
+}
+
 // MARK: - Settings helpers
 
 enum AppInfo {
@@ -1690,10 +1729,12 @@ private struct MobileSidebarView: View {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(tabManager.tabs) { tab in
                         MobileTabRow(tab: tab)
+                            .transition(.tabClose(edge: .leading))
                     }
                     ModNavigationItems(horizontal: false)
                     MobileNewTabButton(fontSize: 13 * tabScale)
                 }
+                .animation(.tabList, value: tabManager.tabs.map(\.id))
                 .padding(.horizontal, 12)
             }
         }
@@ -1974,11 +2015,13 @@ public struct TopBarView: View {
                                     .frame(width: 46 * tabScale)
                                     .padding(.vertical, 7 * tabScale)
                                     .id(tab.id)
+                                    .transition(.tabClose(edge: .top))
                             } else {
                                 TabStripItem(tab: tab, showsURL: false, isActive: tab.id == tabManager.activeTabID)
                                     .frame(width: 170 * tabScale)
                                     .padding(.vertical, 7 * tabScale)
                                     .id(tab.id)
+                                    .transition(.tabClose(edge: .top))
                             }
                         }
 
@@ -1994,6 +2037,7 @@ public struct TopBarView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    .animation(.tabList, value: tabManager.tabs.map(\.id))
                     .padding(.horizontal, 4)
                 }
                 .onChange(of: tabManager.activeTabID) { _, id in
@@ -2262,9 +2306,11 @@ public struct SidebarView: View {
                                 tabManager.closeTab(id: tab.id)
                             }
                         }
+                        .transition(.tabClose(edge: side == "right" ? .trailing : .leading))
                     }
                     NewTabButton(title: "Новая страница", fontSize: 12 * tabScale)
                 }
+                .animation(.tabList, value: tabManager.tabs.map(\.id))
                 .padding(.top, 8)
                 .padding(.horizontal, 8)
             }
