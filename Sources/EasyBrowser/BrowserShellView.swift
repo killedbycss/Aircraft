@@ -1559,23 +1559,28 @@ public struct SidebarView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if side == "left" {
-                HStack(spacing: 10) {
-                    Color.clear.frame(width: 116)
-                    Spacer(minLength: 0)
-                    Button {
-                        NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
-                    } label: { Image(systemName: "gearshape") }
-                    Button {
-                        NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
-                    } label: { Image(systemName: "sidebar.left") }
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        Color.clear.frame(width: 116)
+                        Spacer(minLength: 0)
+                        Button {
+                            NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
+                        } label: { Image(systemName: "gearshape") }
+                        Button {
+                            NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
+                        } label: { Image(systemName: "sidebar.left") }
+                    }
+                    .frame(height: 38 * tabScale)
+                    HStack(spacing: 8) {
+                        CurrentURLLabel(fontSize: 10 * tabScale)
+                        Spacer(minLength: 0)
+                        ReloadPageButton(fontSize: 10 * tabScale)
+                    }
+                    .frame(height: 28 * tabScale)
                 }
-                .frame(height: 38 * tabScale)
-                HStack(spacing: 8) {
-                    CurrentURLLabel(fontSize: 10 * tabScale)
-                    Spacer(minLength: 0)
-                    ReloadPageButton(fontSize: 10 * tabScale)
-                }
-                .frame(height: 28 * tabScale)
+                .font(.system(size: 11 * tabScale, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
             } else {
                 HStack(spacing: 10) {
                     Button(action: {
@@ -1590,11 +1595,10 @@ public struct SidebarView: View {
                     .help("Настройки")
                 }
                 .frame(height: 38 * tabScale)
+                .font(.system(size: 11 * tabScale, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
             }
-            .buttonStyle(PlainButtonStyle())
-            .font(.system(size: 11 * tabScale, weight: .medium))
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 12)
             Divider()
 
             // On the left, loaded mod actions belong below the window controls;
