@@ -11,7 +11,8 @@ public enum ViewState: String, Codable {
 public struct BrowserShellView: View {
     @Environment(TabManager.self) private var tabManager: TabManager
     @State private var currentState: ViewState = .workspace
-    @State private var sidebarVisible: Bool = true
+    /// Закреплена ли панель вкладок (⌃⌥S) — сохраняется между запусками.
+    @AppStorage("tabBarPinned") private var sidebarVisible: Bool = true
     @State private var showSearchModal: Bool = false
     @State private var spotlightSeed: String = ""
     @State private var spotlightRequestID = UUID()
