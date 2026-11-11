@@ -130,6 +130,11 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             for tab in self.tabs {
                 guard let controller = tab.webView?.configuration.userContentController else { continue }
                 controller.removeAllUserScripts()
+                self.pageSignals.install(into: controller)
+                if AgentServer.isEnabled {
+                    controller.addUserScript(WKUserScript(source: AgentBrowser.consoleCaptureSource, injectionTime: .atDocumentStart,
+                                                          forMainFrameOnly: true, in: .page))
+                }
                 self.scriptBridge.configure(userContentController: controller)
                 self.loadCustomModifications(into: controller)
                 AdBlocker.shared.installPageScript(into: controller)
