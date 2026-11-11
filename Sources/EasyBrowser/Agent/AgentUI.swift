@@ -26,9 +26,12 @@ final class AgentActivity {
 }
 
 /// Рамка и плашка «Агент управляет вкладкой» поверх страницы, пока агент работает с ней.
+/// В оконном режиме углы рамки, совпадающие с углами окна, скругляются радиусом окна.
 struct AgentActivityOverlay: View {
     let tabID: UUID
     private var activity = AgentActivity.shared
+    @State private var window: NSWindow?
+    @State private var windowStateVersion = 0
 
     init(tabID: UUID) {
         self.tabID = tabID
@@ -38,8 +41,11 @@ struct AgentActivityOverlay: View {
         let active = activity.tabID == tabID
         ZStack(alignment: .bottom) {
             if active {
-                RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(Color.accentColor.opacity(0.85), lineWidth: 3)
+                GeometryReader { geometry in
+                    UnevenRoundedRectangle(cornerRadii: cornerRadii(for: geometry.frame(in: .global)), style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.85), lineWidth: 3)
+                }
+                .id(windowStateVersion)
                 HStack(spacing: 7) {
                     Image(systemName: "sparkles")
                         .symbolEffect(.pulse)
@@ -64,6 +70,63 @@ struct AgentActivityOverlay: View {
         }
         .animation(.easeOut(duration: 0.2), value: active)
         .allowsHitTesting(false)
+        .background(WindowReader { window = $0 })
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in windowStateVersion += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in windowStateVersion += 1 }
+    }
+
+    /// Скругляем только те углы рамки, что лежат в углах окна. В полноэкранном режиме углов нет.
+    private func cornerRadii(for frame: CGRect) -> RectangleCornerRadii {
+        guard let window, !window.styleMask.contains(.fullScreen), let content = window.contentView else {
+            return RectangleCornerRadii()
+        }
+        let radius = Self.cornerRadius(of: window)
+        let size = content.bounds.size
+        let tolerance: CGFloat = 1.5
+        let left = frame.minX <= tolerance
+        let right = frame.maxX >= size.width - tolerance
+        let top = frame.minY <= tolerance
+        let bottom = frame.maxY >= size.height - tolerance
+        return RectangleCornerRadii(
+            topLeading: top && left ? radius : 0,
+            bottomLeading: bottom && left ? radius : 0,
+            bottomTrailing: bottom && right ? radius : 0,
+            topTrailing: top && right ? radius : 0
+        )
+    }
+
+    private static func cornerRadius(of window: NSWindow) -> CGFloat {
+        let selector = NSSelectorFromString("_cornerRadius")
+        if window.responds(to: selector), let value = window.value(forKey: "_cornerRadius") as? CGFloat, value > 0 {
+            return value
+        }
+        if #available(macOS 26, *) { return 16 }
+        return 10
+    }
+}
+
+/// Сообщает окно, в котором находится SwiftUI-представление.
+private struct WindowReader: NSViewRepresentable {
+    let onChange: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: ReaderView, context: Context) {
+        nsView.onChange = onChange
+    }
+
+    final class ReaderView: NSView {
+        var onChange: ((NSWindow?) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let window = self.window
+            DispatchQueue.main.async { [weak self] in self?.onChange?(window) }
+        }
     }
 }
 
