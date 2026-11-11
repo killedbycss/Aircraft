@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import WebKit
 
@@ -17,12 +18,17 @@ final class AdBlocker {
     static let allowlistKey = "adBlockAllowlist"
     private static let ruleListIdentifier = "aircraft-adblock"
     private static let siteRuleListIdentifier = "aircraft-adblock-sites"
+    private static let filterListPrefix = "aircraft-lists-"
+    private static let probeIdentifier = "aircraft-probe"
+    private static let compiledKeyKey = "adBlockCompiledListsKey"
+    private static let compiledCountKey = "adBlockCompiledListsCount"
+    private static let compiledRulesKey = "adBlockCompiledRuleCount"
 
-    /// Скомпилированные списки правил (общий и для Яндекса/Google). Пусто, пока защита
-    /// выключена или правила компилируются. Списки собираются отдельно, чтобы ошибка
-    /// в одном не отключала другой.
+    /// Скомпилированные списки правил: встроенные, Яндекс/Google и подписки (по частям).
+    /// Списки собираются отдельно, чтобы ошибка в одном не отключала другие.
     private(set) var ruleLists: [WKContentRuleList] = []
     private var compileGeneration = 0
+    private var buildTask: Task<Void, Never>?
 
     var isEnabled: Bool { UserDefaults.standard.bool(forKey: Self.enabledKey) }
     var blocksTrackers: Bool { UserDefaults.standard.bool(forKey: Self.trackerEnabledKey) }
@@ -30,14 +36,24 @@ final class AdBlocker {
     var blocksYandexAds: Bool { UserDefaults.standard.bool(forKey: Self.yandexEnabledKey) }
     /// Реклама Google: поиск, AdSense/Ad Manager на сайтах и YouTube.
     var blocksGoogleAds: Bool { UserDefaults.standard.bool(forKey: Self.googleEnabledKey) }
+    /// Есть ли свои правила (они работают и при выключенном основном блокировщике).
+    var hasCustomRules: Bool { !FilterListStore.shared.customRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// Работает ли хоть одна из защит.
-    var isActive: Bool { isEnabled || blocksTrackers || blocksYandexAds || blocksGoogleAds }
+    var isActive: Bool { isEnabled || blocksTrackers || blocksYandexAds || blocksGoogleAds || hasCustomRules }
 
     /// Сайты, на которых реклама разрешена (без «www.»).
     var allowlist: [String] { UserDefaults.standard.stringArray(forKey: Self.allowlistKey) ?? [] }
 
     private init() {
         rebuild(reloadPages: false)
+        // Списки фильтров обновляются в фоне, когда подходит срок.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            FilterListStore.shared.refreshIfNeeded()
+        }
+        Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { _ in
+            Task { @MainActor in FilterListStore.shared.refreshIfNeeded() }
+        }
     }
 
     /// Подключает правила к вкладке (новые загрузки страниц будут фильтроваться).
@@ -78,36 +94,221 @@ final class AdBlocker {
         rebuild(reloadPages: true)
     }
 
-    /// Пересобирает правила после включения/выключения или изменения исключений.
+    // MARK: - Сборка
+
+    /// Пересобирает правила после включения/выключения, обновления списков или изменения исключений.
     func rebuild(reloadPages: Bool) {
         compileGeneration += 1
         let generation = compileGeneration
-        var pending: [(String, String)] = []
-        if isEnabled || blocksTrackers {
-            pending.append((Self.ruleListIdentifier, Self.rulesJSON(ads: isEnabled, trackers: blocksTrackers, allowlist: allowlist)))
-        }
-        if blocksYandexAds || blocksGoogleAds {
-            pending.append((Self.siteRuleListIdentifier, Self.siteRulesJSON(yandex: blocksYandexAds, google: blocksGoogleAds, allowlist: allowlist)))
-        }
-        compile(pending, into: [], generation: generation, reloadPages: reloadPages)
+        buildTask?.cancel()
+        buildTask = Task { [weak self] in await self?.build(generation: generation, reloadPages: reloadPages) }
     }
 
-    private func compile(_ pending: [(String, String)], into done: [WKContentRuleList], generation: Int, reloadPages: Bool) {
-        guard let (identifier, json) = pending.first else {
-            ruleLists = done
+    private func build(generation: Int, reloadPages: Bool) async {
+        let store = FilterListStore.shared
+        // Свои исключения (@@…) действуют и на встроенные правила.
+        let customExceptions = FilterConverter.convert(store.customRules).exceptions
+
+        // 1. Встроенные правила — маленькие, собираются за доли секунды.
+        var builtin: [WKContentRuleList] = []
+        var builtinRuleCount = 0
+        if isEnabled || blocksTrackers {
+            let json = Self.rulesJSON(ads: isEnabled, trackers: blocksTrackers, allowlist: allowlist, extraExceptions: customExceptions)
+            if let list = await compile(identifier: Self.ruleListIdentifier, json: json) { builtin.append(list) }
+            builtinRuleCount += Self.blockedDomains.count + Self.trackerDomains.count
+        }
+        if blocksYandexAds || blocksGoogleAds {
+            let json = Self.siteRulesJSON(yandex: blocksYandexAds, google: blocksGoogleAds, allowlist: allowlist, extraExceptions: customExceptions)
+            if let list = await compile(identifier: Self.siteRuleListIdentifier, json: json) { builtin.append(list) }
+            builtinRuleCount += SiteAdRules.rules(yandex: blocksYandexAds, google: blocksGoogleAds).count
+        }
+        guard generation == compileGeneration else { return }
+
+        guard isEnabled || hasCustomRules else {
+            ruleLists = builtin
+            store.activeRuleCount = builtinRuleCount
+            store.buildStatus = nil
             notify(reloadPages: reloadPages)
             return
         }
-        WKContentRuleListStore.default().compileContentRuleList(
-            forIdentifier: identifier,
-            encodedContentRuleList: json
-        ) { [weak self] list, error in
-            MainActor.assumeIsolated {
-                guard let self, generation == self.compileGeneration else { return }
-                if let error { print("Aircraft AdBlocker: не удалось собрать правила \(identifier): \(error)") }
-                self.compile(Array(pending.dropFirst()), into: done + (list.map { [$0] } ?? []),
-                             generation: generation, reloadPages: reloadPages)
+        // Пока собираются подписки, работают хотя бы встроенные правила.
+        ruleLists = builtin + ruleLists.filter { $0.identifier.hasPrefix(Self.filterListPrefix) }
+        notify(reloadPages: false)
+
+        // 2. Подписки и свои правила.
+        let lists = await buildFilterLists(generation: generation)
+        guard generation == compileGeneration else { return }
+        ruleLists = builtin + lists.lists
+        store.activeRuleCount = builtinRuleCount + lists.ruleCount
+        store.buildStatus = nil
+        notify(reloadPages: reloadPages)
+    }
+
+    /// Входные данные сборки подписок; по их хэшу находим уже скомпилированные правила.
+    private struct ListInputs: Sendable {
+        var files: [(id: String, url: URL)]
+        var customRules: String
+        var allowlist: [String]
+
+        var key: String {
+            var parts = ["v\(FilterConverter.version)"]
+            for file in files {
+                let attributes = try? FileManager.default.attributesOfItem(atPath: file.url.path)
+                let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+                let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+                parts.append("\(file.id):\(size):\(Int(modified))")
             }
+            parts.append(customRules)
+            parts.append(allowlist.joined(separator: ","))
+            let digest = SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))
+            return digest.map { String(format: "%02x", $0) }.joined().prefix(12).description
+        }
+    }
+
+    private struct ListPlan: Sendable {
+        var chunks: [[String]] = []
+        var stats: [String: (Int, Int)] = [:]
+        var custom: (Int, Int) = (0, 0)
+    }
+
+    private func buildFilterLists(generation: Int) async -> (lists: [WKContentRuleList], ruleCount: Int) {
+        let store = FilterListStore.shared
+        let inputs = ListInputs(files: isEnabled ? store.activeListFiles : [], customRules: store.customRules, allowlist: allowlist)
+        guard !inputs.files.isEmpty || !inputs.customRules.isEmpty else {
+            await removeStaleLists(keeping: [])
+            return ([], 0)
+        }
+        let key = inputs.key
+        let defaults = UserDefaults.standard
+
+        // Правила не менялись — берём скомпилированные с прошлого раза (мгновенно).
+        if defaults.string(forKey: Self.compiledKeyKey) == key {
+            let count = defaults.integer(forKey: Self.compiledCountKey)
+            var found: [WKContentRuleList] = []
+            for index in 0..<count {
+                if let list = await lookUp(Self.filterListPrefix + "\(key)-\(index)") { found.append(list) }
+            }
+            if count > 0 && found.count == count { return (found, defaults.integer(forKey: Self.compiledRulesKey)) }
+        }
+
+        store.buildStatus = "Обработка списков фильтров…"
+        let plan = await Task.detached(priority: .userInitiated) { Self.makePlan(inputs) }.value
+        guard generation == compileGeneration else { return ([], 0) }
+        store.recordStats(plan.stats, custom: plan.custom)
+
+        var lists: [WKContentRuleList] = []
+        var ruleCount = 0
+        for (index, chunk) in plan.chunks.enumerated() {
+            store.buildStatus = plan.chunks.count > 1
+                ? "Сборка правил: часть \(index + 1) из \(plan.chunks.count)…"
+                : "Сборка правил…"
+            let identifier = Self.filterListPrefix + "\(key)-\(index)"
+            var rules = chunk
+            var list = await compile(identifier: identifier, json: "[" + rules.joined(separator: ",") + "]")
+            if list == nil {
+                // В части есть правило, которое WebKit не принимает: находим и выкидываем.
+                store.buildStatus = "Поиск неподдерживаемых правил…"
+                let bad = await invalidRuleIndices(rules[...], offset: 0, budget: 24)
+                if !bad.isEmpty {
+                    let badSet = Set(bad)
+                    rules = rules.enumerated().filter { !badSet.contains($0.offset) }.map(\.element)
+                    list = await compile(identifier: identifier, json: "[" + rules.joined(separator: ",") + "]")
+                }
+            }
+            guard generation == compileGeneration else { return ([], 0) }
+            if let list {
+                lists.append(list)
+                ruleCount += rules.count
+            }
+        }
+        if lists.count == plan.chunks.count {
+            defaults.set(key, forKey: Self.compiledKeyKey)
+            defaults.set(lists.count, forKey: Self.compiledCountKey)
+            defaults.set(ruleCount, forKey: Self.compiledRulesKey)
+        }
+        await removeStaleLists(keeping: Set(lists.map(\.identifier)))
+        return (lists, ruleCount)
+    }
+
+    /// WebKit принимает не больше 150 000 правил в одном списке; берём с запасом.
+    nonisolated private static let maxRulesPerList = 60_000
+
+    nonisolated private static func makePlan(_ inputs: ListInputs) -> ListPlan {
+        var plan = ListPlan()
+        var combined = FilterConverter.Result()
+        for file in inputs.files {
+            guard let text = try? String(contentsOf: file.url, encoding: .utf8) else { continue }
+            let result = FilterConverter.convert(text)
+            plan.stats[file.id] = (result.converted, result.skipped)
+            combined.append(result)
+        }
+        let custom = FilterConverter.convert(inputs.customRules)
+        plan.custom = (custom.converted, custom.skipped)
+        combined.append(custom)
+
+        func encode(_ rule: [String: Any]) -> String? {
+            guard let data = try? JSONSerialization.data(withJSONObject: rule) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        let blocks = combined.blocks.compactMap(encode)
+        let hiding = combined.hiding.compactMap(encode)
+        // Исключения, блокировка страниц и белый список нужны в каждой части:
+        // ignore-previous-rules действует только внутри своего списка.
+        var tail = combined.documentBlocks.compactMap(encode) + combined.exceptions.compactMap(encode)
+        if let allow = allowlistRule(inputs.allowlist).flatMap(encode) { tail.append(allow) }
+        let topFrame = encode(FilterConverter.topFrameAllowance)!
+
+        let perChunk = max(1_000, maxRulesPerList - tail.count - 1)
+        let items = blocks.map { (true, $0) } + hiding.map { (false, $0) }
+        var start = 0
+        repeat {
+            let slice = items[start..<min(start + perChunk, items.count)]
+            let chunkBlocks = slice.filter(\.0).map(\.1)
+            let chunkHiding = slice.filter { !$0.0 }.map(\.1)
+            plan.chunks.append(chunkBlocks + [topFrame] + chunkHiding + tail)
+            start += perChunk
+        } while start < items.count
+        return plan
+    }
+
+    // MARK: - WebKit
+
+    private func compile(identifier: String, json: String) async -> WKContentRuleList? {
+        await withCheckedContinuation { continuation in
+            WKContentRuleListStore.default().compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: json) { list, error in
+                if let error { print("Aircraft AdBlocker: не удалось собрать \(identifier): \(error)") }
+                continuation.resume(returning: list)
+            }
+        }
+    }
+
+    private func lookUp(_ identifier: String) async -> WKContentRuleList? {
+        await withCheckedContinuation { continuation in
+            WKContentRuleListStore.default().lookUpContentRuleList(forIdentifier: identifier) { list, _ in
+                continuation.resume(returning: list)
+            }
+        }
+    }
+
+    /// Делением пополам находит правила, из-за которых WebKit отклоняет весь список.
+    private func invalidRuleIndices(_ rules: ArraySlice<String>, offset: Int, budget: Int) async -> [Int] {
+        guard !rules.isEmpty, budget > 0 else { return [] }
+        if await compile(identifier: Self.probeIdentifier, json: "[" + rules.joined(separator: ",") + "]") != nil { return [] }
+        if rules.count == 1 { return [offset] }
+        let middle = rules.startIndex + rules.count / 2
+        let left = await invalidRuleIndices(rules[rules.startIndex..<middle], offset: offset, budget: budget - 1)
+        let right = await invalidRuleIndices(rules[middle...], offset: offset + (middle - rules.startIndex), budget: budget - 1)
+        return left + right
+    }
+
+    private func removeStaleLists(keeping: Set<String>) async {
+        let store = WKContentRuleListStore.default()
+        let identifiers: [String] = await withCheckedContinuation { continuation in
+            store?.getAvailableContentRuleListIdentifiers { continuation.resume(returning: $0 ?? []) }
+        }
+        for identifier in identifiers
+        where (identifier.hasPrefix(Self.filterListPrefix) || identifier == Self.probeIdentifier) && !keeping.contains(identifier) {
+            store?.removeContentRuleList(forIdentifier: identifier) { _ in }
         }
     }
 
@@ -115,7 +316,7 @@ final class AdBlocker {
         NotificationCenter.default.post(name: .adBlockRulesDidChange, object: nil, userInfo: ["reload": reloadPages])
     }
 
-    static func normalizedHost(_ host: String?) -> String? {
+    nonisolated static func normalizedHost(_ host: String?) -> String? {
         guard var host = host?.lowercased().trimmingCharacters(in: .whitespaces), !host.isEmpty else { return nil }
         if host.hasPrefix("www.") { host.removeFirst(4) }
         return host
@@ -196,7 +397,7 @@ final class AdBlocker {
         "[id^=\"mgid_\"]", ".mgbox", "amp-ad", "amp-embed[type=\"taboola\"]"
     ]
 
-    static func rulesJSON(ads: Bool = true, trackers: Bool = false, allowlist: [String]) -> String {
+    static func rulesJSON(ads: Bool = true, trackers: Bool = false, allowlist: [String], extraExceptions: [[String: Any]] = []) -> String {
         var rules: [[String: Any]] = []
         let domains = (ads ? blockedDomains : []) + (trackers ? trackerDomains : [])
         for domain in domains {
@@ -219,24 +420,24 @@ final class AdBlocker {
                 "action": ["type": "css-display-none", "selector": group.joined(separator: ", ")]
             ])
         }
-        return encoded(rules, allowlist: allowlist)
+        return encoded(rules + extraExceptions, allowlist: allowlist)
     }
 
     /// Правила против рекламы Яндекса и Google (см. `SiteAdRules`).
-    static func siteRulesJSON(yandex: Bool, google: Bool, allowlist: [String]) -> String {
-        encoded(SiteAdRules.rules(yandex: yandex, google: google), allowlist: allowlist)
+    static func siteRulesJSON(yandex: Bool, google: Bool, allowlist: [String], extraExceptions: [[String: Any]] = []) -> String {
+        encoded(SiteAdRules.rules(yandex: yandex, google: google) + extraExceptions, allowlist: allowlist)
+    }
+
+    /// Белый список: на этих сайтах все предыдущие правила отменяются.
+    nonisolated static func allowlistRule(_ allowlist: [String]) -> [String: Any]? {
+        let domains = allowlist.compactMap { normalizedHost($0) }.map { "*\($0)" }
+        guard !domains.isEmpty else { return nil }
+        return ["trigger": ["url-filter": ".*", "if-domain": domains], "action": ["type": "ignore-previous-rules"]]
     }
 
     private static func encoded(_ rules: [[String: Any]], allowlist: [String]) -> String {
         var rules = rules
-        // Исключения: на разрешённых сайтах все предыдущие правила отменяются.
-        let allowedDomains = allowlist.compactMap { normalizedHost($0) }.map { "*\($0)" }
-        if !allowedDomains.isEmpty {
-            rules.append([
-                "trigger": ["url-filter": ".*", "if-domain": allowedDomains],
-                "action": ["type": "ignore-previous-rules"]
-            ])
-        }
+        if let allow = allowlistRule(allowlist) { rules.append(allow) }
         guard let data = try? JSONSerialization.data(withJSONObject: rules),
               let json = String(data: data, encoding: .utf8) else { return "[]" }
         return json

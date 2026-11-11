@@ -42,6 +42,14 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
             let key = event.charactersIgnoringModifiers?.lowercased()
             let target = NSApp.keyWindow
 
+            // В окне настроек браузерные сочетания не действуют, ⌘W закрывает окно.
+            if let target, target === SettingsWindowController.shared.window {
+                if key == "w", modifiers == [.command] {
+                    target.performClose(nil)
+                    return nil
+                }
+                return event
+            }
             if key == "w", modifiers == [.command] {
                 NotificationCenter.default.post(name: .closeActiveTab, object: target)
                 return nil
@@ -176,7 +184,7 @@ struct EasyBrowserApp: App {
 
             CommandGroup(replacing: .appSettings) {
                 Button("Настройки…") {
-                    NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
+                    SettingsWindowController.shared.show()
                 }
                 .keyboardShortcut(",", modifiers: [.command])
             }
@@ -225,6 +233,15 @@ struct EasyBrowserApp: App {
                 Button("Инструменты разработчика (F12)") {
                     NotificationCenter.default.post(name: .toggleWebInspector, object: NSApp.keyWindow)
                 }
+
+                Button("Скрыть элемент на странице…") {
+                    if NSApp.keyWindow === SettingsWindowController.shared.window {
+                        ElementPicker.startInFrontmostWindow()
+                    } else {
+                        NotificationCenter.default.post(name: .startElementPicker, object: NSApp.keyWindow)
+                    }
+                }
+                .keyboardShortcut("b", modifiers: [.command, .option])
             }
         }
     }
@@ -248,4 +265,5 @@ extension Notification.Name {
     static let goBack = Notification.Name("GoBack")
     static let goForward = Notification.Name("GoForward")
     static let toggleWebInspector = Notification.Name("ToggleWebInspector")
+    static let startElementPicker = Notification.Name("StartElementPicker")
 }

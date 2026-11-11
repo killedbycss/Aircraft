@@ -39,7 +39,7 @@ public struct BrowserShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { notification in
             guard isTargetWindow(notification) else { return }
             showSearchModal = false
-            currentState = .settings
+            SettingsWindowController.shared.show()
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusLocation)) { notification in
             guard isTargetWindow(notification) else { return }
@@ -103,9 +103,7 @@ public struct BrowserShellView: View {
                 switch currentState {
                 case .home:
                     HomeView(currentState: $currentState, showSearchModal: $showSearchModal)
-                case .settings:
-                    SettingsView(currentState: $currentState)
-                case .workspace:
+                case .workspace, .settings:
                     WorkspaceView(
                         sidebarVisible: $sidebarVisible,
                         showSearchModal: $showSearchModal,
@@ -152,6 +150,10 @@ public struct BrowserShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleWebInspector)) { notification in
             guard isTargetWindow(notification) else { return }
             tabManager.toggleWebInspector()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .startElementPicker)) { notification in
+            guard isTargetWindow(notification), let webView = tabManager.activeWebView else { return }
+            Task { await ElementPicker.start(in: webView) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .goForward)) { notification in
             guard isTargetWindow(notification) else { return }
@@ -331,8 +333,10 @@ public struct HomeView: View {
 // MARK: - Settings View
 
 public struct SettingsView: View {
-    @Binding public var currentState: ViewState
-    @Environment(TabManager.self) private var tabManager: TabManager
+    /// Закрыть окно настроек.
+    var onClose: () -> Void = {}
+    /// Вкладки окна браузера, из которого открыты настройки (может не быть).
+    @Environment(TabManager.self) private var tabManager: TabManager?
     @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage("tabGroupsEnabled") private var tabGroupsEnabled: Bool = false
@@ -340,11 +344,6 @@ public struct SettingsView: View {
     @AppStorage("browserTheme") private var browserTheme: String = "system"
     @AppStorage("tabScale") private var tabScale: Double = 0.9
     @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
-    @AppStorage(AdBlocker.enabledKey) private var adBlockEnabled: Bool = false
-    @AppStorage(AdBlocker.trackerEnabledKey) private var trackerBlockEnabled: Bool = false
-    @AppStorage(AdBlocker.yandexEnabledKey) private var yandexAdBlockEnabled: Bool = false
-    @AppStorage(AdBlocker.googleEnabledKey) private var googleAdBlockEnabled: Bool = false
-    @State private var adBlockAllowlist: [String] = []
     @AppStorage("resourceMonitoring") private var resourceMonitoring: Bool = false
     @AppStorage("resourceLimitAlert") private var resourceLimitAlert: String = "none"
     @AppStorage("resourceLimitMB") private var resourceLimitMB: Double = 512
@@ -385,7 +384,7 @@ public struct SettingsView: View {
             .background(Color(NSColor.windowBackgroundColor))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onExitCommand { currentState = .workspace }
+        .onExitCommand { onClose() }
         .onAppear {
             loadCustomModifications()
             modBackgroundColor = Color(aircraftHex: UserDefaults.standard.string(forKey: "aircraftModBackgroundHex") ?? "#00000000")
@@ -439,7 +438,7 @@ public struct SettingsView: View {
             Text(selectedSection.title)
                 .font(.system(size: 17, weight: .semibold))
             Spacer()
-            Button("Готово") { currentState = .workspace }
+            Button("Готово") { onClose() }
                 .keyboardShortcut(.cancelAction)
                 .controlSize(.large)
         }
@@ -456,6 +455,7 @@ public struct SettingsView: View {
         case .tabs: tabsPane
         case .search: searchPane
         case .resources: resourcesPane
+        case .adblock: AdBlockSettingsPane(currentSiteHost: currentSiteHost)
         case .mods: modsPane
         case .agents: AgentSettingsPane()
         case .shortcuts: shortcutsPane
@@ -463,6 +463,11 @@ public struct SettingsView: View {
     }
 
     private var appVersion: String { AppInfo.displayVersion }
+
+    /// Моды подключаются во всех окнах браузера, а не только в одном.
+    private func reloadModsEverywhere() {
+        AgentBrowser.allManagers.forEach { $0.reloadCustomModifications() }
+    }
 
     // MARK: Браузер
 
@@ -564,7 +569,7 @@ public struct SettingsView: View {
                     Text("Тёмная").tag("dark")
                 }
                 .pickerStyle(.segmented)
-                if tabManager.modCapabilities.contains("themes") {
+                if tabManager?.modCapabilities.contains("themes") == true {
                     ColorPicker("Фон сайтов", selection: $modBackgroundColor, supportsOpacity: true)
                         .onChange(of: modBackgroundColor) { _, value in selectModBackground(value) }
                 }
@@ -736,7 +741,7 @@ public struct SettingsView: View {
                 }
                 HStack {
                     Spacer()
-                    Button("Сбросить сейчас") { tabManager.resetResources(scope: resourceResetScope) }
+                    Button("Сбросить сейчас") { tabManager?.resetResources(scope: resourceResetScope) }
                 }
             }
         }
@@ -747,122 +752,12 @@ public struct SettingsView: View {
     // MARK: Модификации
 
     private var currentSiteHost: String? {
-        guard let url = tabManager.activeTab?.url, url.scheme == "http" || url.scheme == "https" else { return nil }
+        guard let url = tabManager?.activeTab?.url, url.scheme == "http" || url.scheme == "https" else { return nil }
         return AdBlocker.normalizedHost(url.host)
-    }
-
-    private var adBlockSection: some View {
-        Section {
-            HStack(spacing: 12) {
-                Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(Color.red.gradient, in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Блокировщик рекламы")
-                    Text("Не загружает рекламные сети и прячет рекламные блоки")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Toggle("", isOn: $adBlockEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
-            .padding(.vertical, 2)
-            .onChange(of: adBlockEnabled) { _, _ in AdBlocker.shared.rebuild(reloadPages: true) }
-
-            adBlockToggleRow(
-                symbol: "magnifyingglass", color: .orange,
-                title: "Блокировать рекламу Яндекса",
-                subtitle: "Директ в Поиске, Карты, Маркет, Музыка, РСЯ и Adfox на сайтах, обход анти-адблока",
-                isOn: $yandexAdBlockEnabled
-            )
-            adBlockToggleRow(
-                symbol: "play.rectangle.fill", color: .blue,
-                title: "Блокировать рекламу Google",
-                subtitle: "Реклама в поиске Google, AdSense на сайтах и ролики, баннеры и окна анти-адблока на YouTube",
-                isOn: $googleAdBlockEnabled
-            )
-
-            HStack(spacing: 12) {
-                Image(systemName: "eye.slash.fill")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(Color.indigo.gradient, in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Блокировщик трекеров")
-                    Text("Не загружает счётчики и пиксели слежки, убирает метки utm_*, fbclid, gclid из ссылок")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Toggle("", isOn: $trackerBlockEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
-            .padding(.vertical, 2)
-            .onChange(of: trackerBlockEnabled) { _, _ in AdBlocker.shared.rebuild(reloadPages: true) }
-
-            if adBlockEnabled || trackerBlockEnabled || yandexAdBlockEnabled || googleAdBlockEnabled {
-                if let host = currentSiteHost {
-                    Toggle("Отключить защиту на \(host)", isOn: Binding(
-                        get: { adBlockAllowlist.contains(host) },
-                        set: { allowed in
-                            AdBlocker.shared.setAllowed(allowed, host: host)
-                            adBlockAllowlist = AdBlocker.shared.allowlist
-                        }
-                    ))
-                }
-                ForEach(adBlockAllowlist.filter { $0 != currentSiteHost }, id: \.self) { host in
-                    HStack {
-                        Image(systemName: "checkmark.shield").foregroundStyle(.secondary)
-                        Text(host).lineLimit(1)
-                        Spacer()
-                        Button { AdBlocker.shared.setAllowed(false, host: host); adBlockAllowlist = AdBlocker.shared.allowlist } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Снова включить защиту на этом сайте")
-                    }
-                }
-            }
-        } header: {
-            Text("Защита")
-        } footer: {
-            Text("Списки из \(AdBlocker.blockedDomains.count) рекламных сетей и \(AdBlocker.trackerDomains.count) трекеров встроены в Aircraft и работают без интернета. Если сайт ломается, отключите на нём защиту.")
-                .foregroundStyle(.secondary)
-        }
-        .onAppear { adBlockAllowlist = AdBlocker.shared.allowlist }
-    }
-
-    private func adBlockToggleRow(symbol: String, color: Color, title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(color.gradient, in: RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-        }
-        .padding(.vertical, 2)
-        .onChange(of: isOn.wrappedValue) { _, _ in AdBlocker.shared.rebuild(reloadPages: true) }
     }
 
     private var modsPane: some View {
         Form {
-            adBlockSection
             Section {
                 ForEach(BundledMod.all) { mod in
                     let installedFile = customScripts.first { ModCatalog.family(for: $0) == mod.id }
@@ -992,7 +887,7 @@ public struct SettingsView: View {
                         }
                         try FileManager.default.copyItem(at: url, to: destination)
                         loadCustomModifications()
-                        tabManager.reloadCustomModifications()
+                        reloadModsEverywhere()
                     } catch {
                         NSSound.beep()
                     }
@@ -1023,7 +918,7 @@ public struct SettingsView: View {
         let value = NSColor(color).aircraftHex
         UserDefaults.standard.set(value, forKey: "aircraftModBackgroundHex")
         ScriptBridge.setStoredValue(value, for: "themes.background")
-        tabManager.reloadCustomModifications()
+        reloadModsEverywhere()
     }
 
     private func installBundledModification(named name: String) {
@@ -1041,7 +936,7 @@ public struct SettingsView: View {
             }
             try FileManager.default.copyItem(at: source, to: destination)
             loadCustomModifications()
-            tabManager.reloadCustomModifications()
+            reloadModsEverywhere()
         } catch {
             NSSound.beep()
         }
@@ -1137,7 +1032,7 @@ public struct SettingsView: View {
         do {
             try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
             loadCustomModifications()
-            tabManager.reloadCustomModifications()
+            reloadModsEverywhere()
         } catch {
             NSSound.beep()
         }
@@ -1226,7 +1121,7 @@ enum AppInfo {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case browser, general, tabs, search, resources, mods, agents, shortcuts
+    case browser, general, tabs, search, adblock, resources, mods, agents, shortcuts
     var id: String { rawValue }
 
     var title: String {
@@ -1235,6 +1130,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: "Основные"
         case .tabs: "Вкладки"
         case .search: "Поиск и URL"
+        case .adblock: "Блокировщик"
         case .resources: "Ресурсы"
         case .mods: "Модификации"
         case .agents: "Агенты"
@@ -1248,6 +1144,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: "gearshape.fill"
         case .tabs: "square.on.square"
         case .search: "magnifyingglass"
+        case .adblock: "hand.raised.fill"
         case .resources: "memorychip.fill"
         case .mods: "puzzlepiece.extension.fill"
         case .agents: "sparkles"
@@ -1261,6 +1158,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: .gray
         case .tabs: .blue
         case .search: .orange
+        case .adblock: .red
         case .resources: .green
         case .mods: .purple
         case .agents: .teal

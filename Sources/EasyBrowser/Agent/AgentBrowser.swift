@@ -39,6 +39,23 @@ final class AgentBrowser {
         managers.append(WeakManager(value: manager))
     }
 
+    /// Все открытые окна браузера.
+    static var allManagers: [TabManager] {
+        managers.removeAll { $0.value == nil }
+        return managers.compactMap(\.value)
+    }
+
+    /// Окно браузера, которое ближе всего к пользователю (для окна настроек и пипетки).
+    static var frontmostManager: TabManager? {
+        managers.removeAll { $0.value == nil }
+        let order = NSApp.orderedWindows
+        func index(_ manager: TabManager) -> Int {
+            let window = manager.tabs.lazy.compactMap { $0.webView?.window }.first
+            return window.flatMap { order.firstIndex(of: $0) } ?? Int.max
+        }
+        return managers.compactMap(\.value).min { index($0) < index($1) }
+    }
+
     private var liveManagers: [TabManager] {
         Self.managers.removeAll { $0.value == nil }
         let order = NSApp.orderedWindows
