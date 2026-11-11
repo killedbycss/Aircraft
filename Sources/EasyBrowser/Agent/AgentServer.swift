@@ -41,7 +41,10 @@ final class AgentServer {
 
     /// Файл, по которому `aircraft-mcp` находит порт и токен запущенного браузера.
     static var discoveryFileURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        if let custom = ProcessInfo.processInfo.environment["AIRCRAFT_DATA_DIR"], !custom.isEmpty {
+            return URL(fileURLWithPath: custom).appendingPathComponent("agent.json")
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Aircraft/agent.json")
     }
 

@@ -35,7 +35,7 @@ public struct BrowserShellView: View {
     public init() {}
 
     public var body: some View {
-        moreHandlers(styledContent
+        featureHandlers(moreHandlers(styledContent
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { notification in
             guard isTargetWindow(notification) else { return }
             showSearchModal = false
@@ -68,7 +68,34 @@ public struct BrowserShellView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleCurrentURLSpotlight)) { notification in
             toggleCurrentURLSpotlight(notification)
-        })
+        }))
+    }
+
+    /// Окно, команды браузера (⌘F, ⌘⇧T, ⌘D…), профили, перетаскивание файлов.
+    private func featureHandlers<V: View>(_ view: V) -> some View {
+        view
+        .onChange(of: windowNumber) { _, number in
+            guard let number, let window = NSApp.window(withWindowNumber: number) else { return }
+            tabManager.hostWindow = window
+            if tabManager.isIncognito { window.title = "Инкогнито" }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = notification.object as? NSWindow, window.windowNumber == windowNumber else { return }
+            if !tabManager.isIncognito { SessionStore.shared.windowClosed(tabManager) }
+            for tab in tabManager.tabs { tab.webView?.stopLoading() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .browserCommand)) { notification in
+            guard isTargetWindow(notification), let command = notification.userInfo?["command"] as? String else { return }
+            BrowserCommands.perform(command, in: tabManager, presentSpotlight: { presentSpotlight(query: $0) })
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .profileDeleted)) { notification in
+            guard let id = notification.userInfo?["id"] as? UUID else { return }
+            tabManager.profileWasDeleted(id)
+        }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            BrowserCommands.openDroppedFiles(providers, in: tabManager)
+            return true
+        }
     }
 
     /// Окно с общим оформлением (размер, фон, тема).
@@ -84,7 +111,7 @@ public struct BrowserShellView: View {
             .background(Color(NSColor.windowBackgroundColor))
             .background(WindowTabbingDisabler(windowNumber: $windowNumber))
             .fontWeight(.medium)
-            .preferredColorScheme(browserTheme == "dark" ? .dark : (browserTheme == "light" ? .light : nil))
+            .preferredColorScheme(tabManager.isIncognito ? .dark : (browserTheme == "dark" ? .dark : (browserTheme == "light" ? .light : nil)))
     }
 
     private func toggleCurrentURLSpotlight(_ notification: Notification) {
@@ -385,6 +412,11 @@ public struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onExitCommand { onClose() }
+        .onReceive(NotificationCenter.default.publisher(for: .selectSettingsPane)) { notification in
+            if let raw = notification.userInfo?["pane"] as? String, let pane = SettingsPane(rawValue: raw) {
+                selectedSection = pane
+            }
+        }
         .onAppear {
             loadCustomModifications()
             modBackgroundColor = Color(aircraftHex: UserDefaults.standard.string(forKey: "aircraftModBackgroundHex") ?? "#00000000")
@@ -459,6 +491,8 @@ public struct SettingsView: View {
         case .mods: modsPane
         case .agents: AgentSettingsPane()
         case .shortcuts: shortcutsPane
+        case .profiles: ProfilesSettingsPane()
+        case .privacy: PrivacySettingsPane(manager: tabManager)
         }
     }
 
@@ -507,6 +541,9 @@ public struct SettingsView: View {
                 Text("macOS попросит подтвердить выбор.")
                     .foregroundStyle(.secondary)
             }
+
+            ImportSettingsSection(manager: tabManager)
+            WebAppsSettingsSection()
 
             Section("Сведения") {
                 LabeledContent("Движок", value: "WebKit \(AppInfo.webKitVersion)")
@@ -632,6 +669,7 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             .disabled(!tabGroupsEnabled)
+            TabBehaviorSettings()
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
@@ -829,9 +867,21 @@ public struct SettingsView: View {
             Section("Вкладки") {
                 LabeledContent("Новая вкладка", value: "⌘T  ·  ⌘N")
                 LabeledContent("Закрыть вкладку", value: "⌘W")
+                LabeledContent("Вернуть закрытую вкладку", value: "⌘⇧T")
+                LabeledContent("Предыдущая / следующая вкладка", value: "⌥←  ·  ⌥→")
                 LabeledContent("Вкладка по номеру", value: "⌘1 … ⌘8")
                 LabeledContent("Последняя вкладка", value: "⌘9")
+                LabeledContent("Выключить звук вкладки", value: "⌘⇧M")
                 LabeledContent("Показать/скрыть панель вкладок", value: "⌃⌥S")
+                LabeledContent("Выделить несколько вкладок", value: "⌘-клик в панели")
+            }
+            Section("Страница") {
+                LabeledContent("Найти на странице", value: "⌘F  ·  ⌘G  ·  ⌘⇧G")
+                LabeledContent("Масштаб", value: "⌘=  ·  ⌘−  ·  ⌘0")
+                LabeledContent("Скопировать ссылку", value: "⌘⇧C")
+                LabeledContent("Режим чтения", value: "⌘⇧R")
+                LabeledContent("Скрыть элемент на странице", value: "⌥⌘B")
+                LabeledContent("Web Inspector", value: "F12  ·  ⌥⌘I")
             }
             Section("Навигация") {
                 LabeledContent("Spotlight с адресом вкладки", value: "⌘⇧ (нажать и отпустить)")
@@ -839,8 +889,16 @@ public struct SettingsView: View {
                 LabeledContent("Назад / вперёд", value: "⌘[  ·  ⌘]")
                 LabeledContent("Обновить", value: "⌘R")
             }
-            Section("Окно") {
+            Section("Закладки и история") {
+                LabeledContent("Добавить в закладки", value: "⌘D")
+                LabeledContent("Закладки", value: "⌘⇧B")
+                LabeledContent("История", value: "⌘Y")
+            }
+            Section("Окно и профили") {
                 LabeledContent("Новое окно", value: "⌘⇧N")
+                LabeledContent("Окно инкогнито", value: "⌘⇧P")
+                LabeledContent("Профиль по номеру", value: "⌃1 … ⌃9")
+                LabeledContent("Открыть файл", value: "⌘O")
                 LabeledContent("Настройки", value: "⌘,")
             }
         }
@@ -1121,7 +1179,7 @@ enum AppInfo {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case browser, general, tabs, search, adblock, resources, mods, agents, shortcuts
+    case browser, general, tabs, profiles, privacy, search, adblock, resources, mods, agents, shortcuts
     var id: String { rawValue }
 
     var title: String {
@@ -1135,6 +1193,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .mods: "Модификации"
         case .agents: "Агенты"
         case .shortcuts: "Сочетания клавиш"
+        case .profiles: "Профили"
+        case .privacy: "Конфиденциальность"
         }
     }
 
@@ -1149,6 +1209,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .mods: "puzzlepiece.extension.fill"
         case .agents: "sparkles"
         case .shortcuts: "keyboard.fill"
+        case .profiles: "person.2.fill"
+        case .privacy: "lock.fill"
         }
     }
 
@@ -1163,6 +1225,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .mods: .purple
         case .agents: .teal
         case .shortcuts: .indigo
+        case .profiles: .pink
+        case .privacy: .brown
         }
     }
 }
@@ -1341,8 +1405,9 @@ private struct BrowserPane: View {
 
     var body: some View {
         if let tabID, let tab = tabManager.tabs.first(where: { $0.id == tabID }), tab.url != nil {
-            WebContainerView(activeWebView: tabManager.webView(for: tabID))
+            PageContent(tab: tab)
                 .overlay(alignment: .top) { PageLoadingBar(tab: tab) }
+                .overlay(alignment: .top) { PageOverlays(tab: tab) }
                 .overlay { AgentActivityOverlay(tabID: tabID) }
         } else {
             // Новая вкладка без адреса — просто пустая страница.
@@ -1718,92 +1783,16 @@ private struct MobileSidebarView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(tabManager.tabs) { tab in
-                        MobileTabRow(tab: tab)
-                            .transition(.tabClose(edge: .leading))
-                    }
+                    TabTreeList(style: .mobile)
                     ModNavigationItems(horizontal: false)
                     MobileNewTabButton(fontSize: 13 * tabScale)
                 }
-                .animation(.tabList, value: tabManager.tabs.map(\.id))
                 .padding(.horizontal, 12)
             }
+            ProfileBar()
         }
         .background(.regularMaterial)
         .ignoresSafeArea()
-    }
-}
-
-private struct MobileTabRow: View {
-    let tab: TabModel
-    @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
-    @State private var copied = false
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Group {
-                if copied {
-                    Image(systemName: "checkmark").foregroundStyle(.green)
-                } else if let favicon = tab.favicon {
-                    Image(nsImage: favicon).resizable().interpolation(.high)
-                } else {
-                    Image(systemName: tab.isPinned ? "pin.fill" : "globe")
-                        .resizable()
-                        .scaledToFit()
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 18 * tabScale, height: 18 * tabScale)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tab.title.isEmpty ? "Новая вкладка" : tab.title)
-                    .font(.system(size: 14 * tabScale, weight: .medium))
-                    .lineLimit(1)
-                if let host = tab.url?.host {
-                    Text(host)
-                        .font(.system(size: 10 * tabScale))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            if tab.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 8 * tabScale))
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            Button { tabManager.closeTab(id: tab.id) } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9 * tabScale, weight: .semibold))
-                    .frame(width: 24 * tabScale, height: 24 * tabScale)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 48 * tabScale)
-        .background(tab.id == tabManager.activeTabID ? Color.primary.opacity(0.08) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if tab.id == tabManager.activeTabID { copyURL() }
-            else { tabManager.selectTab(id: tab.id) }
-        }
-        .contextMenu {
-            Button(tab.isPinned ? "Открепить" : "Закрепить") { tabManager.togglePinTab(id: tab.id) }
-            if tabManager.modCapabilities.contains("splitView") {
-                Button("Разделить экран") { tabManager.activateSplit(with: tab.id) }
-            }
-            Button("Закрыть") { tabManager.closeTab(id: tab.id) }
-        }
-    }
-
-    private func copyURL() {
-        guard let value = tab.url?.absoluteString else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
-        copied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
     }
 }
 
@@ -2000,19 +1989,30 @@ public struct TopBarView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 3) {
-                        ForEach(tabManager.tabs) { tab in
-                            if tab.isPinned {
-                                PinnedTabStripItem(tab: tab, isActive: tab.id == tabManager.activeTabID)
-                                    .frame(width: 46 * tabScale)
-                                    .padding(.vertical, 7 * tabScale)
-                                    .id(tab.id)
-                                    .transition(.tabClose(edge: .top))
-                            } else {
-                                TabStripItem(tab: tab, showsURL: false, isActive: tab.id == tabManager.activeTabID)
-                                    .frame(width: 170 * tabScale)
-                                    .padding(.vertical, 7 * tabScale)
-                                    .id(tab.id)
-                                    .transition(.tabClose(edge: .top))
+                        ForEach(TopBarItem.items(for: tabManager)) { item in
+                            switch item {
+                            case .folder(let folder):
+                                TopBarFolderChip(folder: folder)
+                                    .id(folder.id)
+                            case .tab(let tab, let groupColor):
+                                if tab.isPinned {
+                                    PinnedTabStripItem(tab: tab, isActive: tab.id == tabManager.activeTabID)
+                                        .frame(width: 46 * tabScale)
+                                        .padding(.vertical, 7 * tabScale)
+                                        .id(tab.id)
+                                        .transition(.tabClose(edge: .top))
+                                } else {
+                                    TabStripItem(tab: tab, showsURL: false, isActive: tab.id == tabManager.activeTabID)
+                                        .frame(width: 170 * tabScale)
+                                        .padding(.vertical, 7 * tabScale)
+                                        .overlay(alignment: .bottom) {
+                                            if let groupColor {
+                                                Capsule().fill(groupColor).frame(height: 2).padding(.horizontal, 8).padding(.bottom, 3)
+                                            }
+                                        }
+                                        .id(tab.id)
+                                        .transition(.tabClose(edge: .top))
+                                }
                             }
                         }
 
@@ -2028,7 +2028,7 @@ public struct TopBarView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    .animation(.tabList, value: tabManager.tabs.map(\.id))
+                    .animation(.tabList, value: tabManager.tree)
                     .padding(.horizontal, 4)
                 }
                 .onChange(of: tabManager.activeTabID) { _, id in
@@ -2079,13 +2079,15 @@ private struct PinnedTabStripItem: View {
         }
         .buttonStyle(.plain)
         .help(tab.title)
-        .contextMenu {
-            Button("Открепить") { tabManager.togglePinTab(id: tab.id) }
-            if tabManager.modCapabilities.contains("splitView") {
-                Button("Разделить экран") { tabManager.activateSplit(with: tab.id) }
-            }
-            Button("Закрыть") { tabManager.closeTab(id: tab.id) }
+        .overlay(alignment: .topTrailing) {
+            TabStatusIcons(tab: tab, fontSize: 7 * tabScale).padding(2)
         }
+        .draggable(TabDragPayload.encode(tab.id))
+        .dropDestination(for: String.self) { items, _ in
+            guard let id = items.compactMap(TabDragPayload.decode).first else { return false }
+            return tabManager.dropNode(id, onto: tab.id, intoFolder: false)
+        }
+        .contextMenu { TabContextMenu(tab: tab) }
     }
 
     private func copyURL() {
@@ -2133,6 +2135,7 @@ private struct TabStripItem: View {
                 }
             }
             Spacer(minLength: 0)
+            TabStatusIcons(tab: tab, fontSize: 9 * tabScale)
             if isActive || isHovering {
                 Button { tabManager.closeTab(id: tab.id) } label: {
                     Image(systemName: "xmark")
@@ -2151,13 +2154,14 @@ private struct TabStripItem: View {
         .contentShape(Rectangle())
         .onTapGesture { isActive ? copyURL() : tabManager.selectTab(id: tab.id) }
         .onHover { isHovering = $0 }
-        .contextMenu {
-            Button(tab.isPinned ? "Открепить" : "Закрепить") { tabManager.togglePinTab(id: tab.id) }
-            if tabManager.modCapabilities.contains("splitView") {
-                Button("Разделить экран") { tabManager.activateSplit(with: tab.id) }
-            }
-            Button("Закрыть") { tabManager.closeTab(id: tab.id) }
+        .draggable(TabDragPayload.encode(tab.id)) {
+            Text(tab.title).lineLimit(1).padding(6)
         }
+        .dropDestination(for: String.self) { items, _ in
+            guard let id = items.compactMap(TabDragPayload.decode).first else { return false }
+            return tabManager.dropNode(id, onto: tab.id, intoFolder: false)
+        }
+        .contextMenu { TabContextMenu(tab: tab) }
     }
 
     private func copyURL() {
@@ -2229,82 +2233,20 @@ public struct SidebarView: View {
                 Divider()
             }
 
-            // Tabs list with favicon, pin & close functionality
+            // Закреплённые, папки, группы и вкладки; перетаскиваются мышью.
             ScrollView {
                 VStack(spacing: 4) {
-                    ForEach(tabManager.tabs) { tab in
-                        HStack(spacing: 8) {
-                            if copiedTabID == tab.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.green)
-                                    .frame(width: 14 * tabScale, height: 14 * tabScale)
-                            } else if let favicon = tab.favicon {
-                                Image(nsImage: favicon)
-                                    .resizable()
-                                    .frame(width: 14 * tabScale, height: 14 * tabScale)
-                            } else {
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(Color.gray.opacity(0.3))
-                                    .frame(width: 14 * tabScale, height: 14 * tabScale)
-                            }
-
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(tab.title.isEmpty ? "Заголовок" : tab.title)
-                                    .font(.system(size: 12 * tabScale))
-                                    .lineLimit(1)
-                                    .foregroundColor(tab.id == tabManager.activeTabID ? .primary : .secondary)
-                                Text(tab.url?.host ?? "Новая вкладка")
-                                    .font(.system(size: 9 * tabScale))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-
-                            Spacer()
-                            if tab.isPinned {
-                                Image(systemName: "pin.fill")
-                                    .font(.system(size: 8 * tabScale))
-                                    .foregroundColor(.secondary)
-                            }
-                            Button { tabManager.closeTab(id: tab.id) } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 8 * tabScale, weight: .semibold))
-                                    .frame(width: 20 * tabScale, height: 20 * tabScale)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Закрыть вкладку")
-                        }
-                        .padding(.vertical, 7 * tabScale)
-                        .padding(.horizontal, 10)
-                        .background(tab.id == tabManager.activeTabID ? Color.gray.opacity(0.12) : Color.clear)
-                        .cornerRadius(6)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if tab.id == tabManager.activeTabID { copyURL(of: tab) }
-                            else { tabManager.selectTab(id: tab.id) }
-                        }
-                        .contextMenu {
-                            Button(tab.isPinned ? "Открепить" : "Закрепить") {
-                                tabManager.togglePinTab(id: tab.id)
-                            }
-                            Button("Выгрузить из памяти") {
-                                tabManager.hibernateTab(id: tab.id)
-                            }
-                            if tabManager.modCapabilities.contains("splitView") {
-                                Button("Разделить экран") { tabManager.activateSplit(with: tab.id) }
-                            }
-                            Divider()
-                            Button("Закрыть") {
-                                tabManager.closeTab(id: tab.id)
-                            }
-                        }
-                        .transition(.tabClose(edge: side == "right" ? .trailing : .leading))
-                    }
+                    TabTreeList(style: .sidebar, side: side)
                     NewTabButton(title: "Новая страница", fontSize: 12 * tabScale)
                 }
-                .animation(.tabList, value: tabManager.tabs.map(\.id))
                 .padding(.top, 8)
                 .padding(.horizontal, 8)
             }
+            .contextMenu {
+                Button("Новая папка") { tabManager.createFolder() }
+            }
+
+            ProfileBar()
 
             if side != "left" {
                 Divider()
@@ -2635,6 +2577,10 @@ public struct SearchModalView: View {
     @State private var query = ""
     @State private var urlSystemActive = false
     @State private var selectedURLSystem = 0
+    @State private var suggestions = SpotlightSuggestionEngine()
+    @State private var selectedSuggestion = -1
+    /// Подсказки появляются, только когда текст начали менять (а не на подставленном адресе).
+    @State private var edited = false
     @Environment(TabManager.self) private var tabManager: TabManager
     @FocusState private var isFocused: Bool
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
@@ -2671,12 +2617,34 @@ public struct SearchModalView: View {
                             return .handled
                         }
                         .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-                            guard urlSystemActive, !urlPrefixes.isEmpty else { return .ignored }
                             let delta = press.key == .downArrow ? 1 : -1
-                            selectedURLSystem = (selectedURLSystem + delta + urlPrefixes.count) % urlPrefixes.count
+                            if urlSystemActive {
+                                guard !urlPrefixes.isEmpty else { return .ignored }
+                                selectedURLSystem = (selectedURLSystem + delta + urlPrefixes.count) % urlPrefixes.count
+                                return .handled
+                            }
+                            let count = visibleSuggestions.count
+                            guard count > 0 else { return .ignored }
+                            selectedSuggestion = min(max(selectedSuggestion + delta, -1), count - 1)
                             return .handled
                         }
-                        .onSubmit { processSearch() }
+                        .onChange(of: query) { _, value in
+                            edited = true
+                            suggestions.update(query: value, manager: tabManager)
+                        }
+                        .onChange(of: suggestions.items) { _, items in
+                            // Автодополнение адреса выбрано сразу: Enter откроет сайт.
+                            let hasAutocomplete: Bool = { if case .autocomplete = items.first?.kind { return true }; return false }()
+                            if selectedSuggestion > 0, selectedSuggestion < items.count { return }
+                            selectedSuggestion = hasAutocomplete ? 0 : -1
+                        }
+                        .onSubmit {
+                            if visibleSuggestions.indices.contains(selectedSuggestion) {
+                                open(visibleSuggestions[selectedSuggestion])
+                            } else {
+                                processSearch()
+                            }
+                        }
                     if !urlSystemActive {
                         HStack(spacing: 2) {
                             spotlightNavButton("chevron.left", help: "Назад (⌘[)", enabled: tabManager.canGoBack) {
@@ -2705,6 +2673,9 @@ public struct SearchModalView: View {
                         isPresented = false
                         currentState = .workspace
                     }
+                } else if !visibleSuggestions.isEmpty {
+                    Divider()
+                    SpotlightSuggestionList(items: visibleSuggestions, selectedIndex: selectedSuggestion) { open($0) }
                 }
             }
                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -2720,6 +2691,41 @@ public struct SearchModalView: View {
         }
     }
 
+    private var visibleSuggestions: [SpotlightSuggestion] { edited ? suggestions.items : [] }
+
+    /// Выбранная подсказка: вкладка — переключиться, остальное — открыть
+    /// (⌘↩ — в новой вкладке).
+    private func open(_ suggestion: SpotlightSuggestion) {
+        let newTab = NSApp.currentEvent?.modifierFlags.contains(.command) == true && tabManager.activeTab?.url != nil
+        func go(_ target: String) {
+            if newTab {
+                let url = URLRouter.navigationTarget(input: target, searchTemplate: SearchEngineOption.queryTemplate(
+                    for: UserDefaults.standard.string(forKey: "searchEngine") ?? "duckduckgo",
+                    customURL: UserDefaults.standard.string(forKey: "customSearchURL") ?? "")).flatMap(URL.init(string:))
+                tabManager.createNewTab(url: url, selectNewTab: true, afterTabID: tabManager.activeTabID)
+            } else {
+                tabManager.navigateActiveTab(to: target)
+            }
+        }
+        switch suggestion.kind {
+        case .autocomplete(let host): go("https://" + host)
+        case .tab(let id):
+            // Пустая вкладка, с которой переключились, не нужна.
+            if let empty = tabManager.activeTab, empty.url == nil {
+                tabManager.selectTab(id: id)
+                tabManager.closeTab(id: empty.id, remember: false)
+            } else {
+                tabManager.selectTab(id: id)
+            }
+        case .bookmark(let url), .history(let url): go(url.absoluteString)
+        case .archive(let id):
+            if let entry = tabManager.archive?.entries.first(where: { $0.id == id }) { tabManager.restoreFromArchive(entry) }
+        case .search(let text): go(text)
+        }
+        isPresented = false
+        currentState = .workspace
+    }
+
     private func processSearch() {
         var target = query
         let flags = NSApp.currentEvent?.modifierFlags ?? []
@@ -2728,7 +2734,14 @@ public struct SearchModalView: View {
             target = prefixed
         }
         if !target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            tabManager.navigateActiveTab(to: target)
+            if flags.contains(.command), tabManager.activeTab?.url != nil {
+                let url = URLRouter.navigationTarget(input: target, searchTemplate: SearchEngineOption.queryTemplate(
+                    for: UserDefaults.standard.string(forKey: "searchEngine") ?? "duckduckgo",
+                    customURL: UserDefaults.standard.string(forKey: "customSearchURL") ?? "")).flatMap(URL.init(string:))
+                tabManager.createNewTab(url: url, selectNewTab: true, afterTabID: tabManager.activeTabID)
+            } else {
+                tabManager.navigateActiveTab(to: target)
+            }
         }
         isPresented = false
         currentState = .workspace
