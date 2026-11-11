@@ -455,6 +455,7 @@ public struct SettingsView: View {
         case .search: searchPane
         case .resources: resourcesPane
         case .mods: modsPane
+        case .agents: AgentSettingsPane()
         case .shortcuts: shortcutsPane
         }
     }
@@ -1188,7 +1189,7 @@ enum AppInfo {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case browser, general, tabs, search, resources, mods, shortcuts
+    case browser, general, tabs, search, resources, mods, agents, shortcuts
     var id: String { rawValue }
 
     var title: String {
@@ -1199,6 +1200,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .search: "Поиск и URL"
         case .resources: "Ресурсы"
         case .mods: "Модификации"
+        case .agents: "Агенты"
         case .shortcuts: "Сочетания клавиш"
         }
     }
@@ -1211,6 +1213,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .search: "magnifyingglass"
         case .resources: "memorychip.fill"
         case .mods: "puzzlepiece.extension.fill"
+        case .agents: "sparkles"
         case .shortcuts: "keyboard.fill"
         }
     }
@@ -1223,6 +1226,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .search: .orange
         case .resources: .green
         case .mods: .purple
+        case .agents: .teal
         case .shortcuts: .indigo
         }
     }
@@ -1404,6 +1408,7 @@ private struct BrowserPane: View {
         if let tabID, let tab = tabManager.tabs.first(where: { $0.id == tabID }), tab.url != nil {
             WebContainerView(activeWebView: tabManager.webView(for: tabID))
                 .overlay(alignment: .top) { PageLoadingBar(tab: tab) }
+                .overlay { AgentActivityOverlay(tabID: tabID) }
         } else {
             // Новая вкладка без адреса — просто пустая страница.
             Color(NSColor.windowBackgroundColor)

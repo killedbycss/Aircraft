@@ -93,6 +93,7 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.removeSystemCloseWindowShortcut()
         }
+        AgentServer.shared.applySettings()
     }
 
     func applicationDidUpdate(_ notification: Notification) {
@@ -102,6 +103,7 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
+        AgentServer.shared.stop()
     }
 
     private func matchesResourceReset(key: String?, modifiers: NSEvent.ModifierFlags) -> Bool {
@@ -217,14 +219,14 @@ struct EasyBrowserApp: App {
                 Button("Вперёд") {
                     NotificationCenter.default.post(name: .goForward, object: NSApp.keyWindow)
                 }
-            }
-        }
 
                 Divider()
 
                 Button("Инструменты разработчика (F12)") {
                     NotificationCenter.default.post(name: .toggleWebInspector, object: NSApp.keyWindow)
                 }
+            }
+        }
     }
 }
 
@@ -245,5 +247,5 @@ extension Notification.Name {
     static let reloadActiveTab = Notification.Name("ReloadActiveTab")
     static let goBack = Notification.Name("GoBack")
     static let goForward = Notification.Name("GoForward")
-}
     static let toggleWebInspector = Notification.Name("ToggleWebInspector")
+}

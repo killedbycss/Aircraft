@@ -26,6 +26,7 @@ xcrun actool "$PROJECT_DIR/Sources/aircraft.icon" \
 rm -rf -- "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$PRODUCT_DIR/Aircraft" "$APP_DIR/Contents/MacOS/Aircraft"
+cp "$PRODUCT_DIR/aircraft-mcp" "$APP_DIR/Contents/MacOS/aircraft-mcp"
 cp "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ICON_OUTPUT_DIR/Assets.car" "$APP_DIR/Contents/Resources/Assets.car"
 cp "$ICON_OUTPUT_DIR/aircraft.icns" "$APP_DIR/Contents/Resources/aircraft.icns"

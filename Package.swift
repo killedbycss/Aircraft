@@ -18,7 +18,8 @@ let package = Package(
         .macOS(.v15)
     ],
     products: [
-        .executable(name: "Aircraft", targets: ["aircraft"])
+        .executable(name: "Aircraft", targets: ["aircraft"]),
+        .executable(name: "aircraft-mcp", targets: ["AircraftMCP"])
     ],
     targets: [
         .executableTarget(
@@ -33,6 +34,11 @@ let package = Package(
                     "-Xlinker", sdkVersion
                 ])
             ]
+        ),
+        // stdio-мост для MCP-клиентов: пересылает JSON-RPC во встроенный сервер Aircraft.
+        .executableTarget(
+            name: "AircraftMCP",
+            path: "Sources/AircraftMCP"
         ),
         .testTarget(
             name: "AircraftTests",

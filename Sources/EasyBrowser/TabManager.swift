@@ -45,6 +45,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     public override init() {
         super.init()
         scriptBridge.delegate = self
+        AgentBrowser.register(self)
         restoreSession()
         refreshInstalledModCapabilities()
         storageObserver = NotificationCenter.default.addObserver(forName: .modStorageDidChange, object: nil, queue: .main) { [weak self] notification in
@@ -284,7 +285,6 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         saveSession()
     }
 
-    public func toggleModPanel(_ capability: String) {
     /// Открывает или закрывает встроенный Web Inspector WebKit для активной вкладки (F12, ⌥⌘I).
     /// Использует приватный `_WKInspector`, который WebKit отдаёт через `-[WKWebView _inspector]`.
     public func toggleWebInspector() {
@@ -308,6 +308,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         return webView.perform(selector)?.takeUnretainedValue() as? NSObject
     }
 
+    public func toggleModPanel(_ capability: String) {
         if capability == "devtools" {
             activeWebView?.isInspectable = true
             let alert = NSAlert()
@@ -524,12 +525,18 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
     private func createWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
         // Включает встроенный Web Inspector (F12, «Проверить элемент» в контекстном меню).
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
         scriptBridge.configure(userContentController: config.userContentController)
         loadCustomModifications(into: config.userContentController)
         AdBlocker.shared.attach(to: config.userContentController)
+        if AgentServer.isEnabled {
+            // Буфер консоли для MCP-инструмента browser_console.
+            config.userContentController.addUserScript(WKUserScript(
+                source: AgentBrowser.consoleCaptureSource, injectionTime: .atDocumentStart,
+                forMainFrameOnly: true, in: .page))
+        }
 
         let webView = WKWebView(frame: .zero, configuration: config)
         // This exposes the real WebKit inspector in Safari's Develop menu.
