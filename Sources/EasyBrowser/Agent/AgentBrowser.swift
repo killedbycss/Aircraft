@@ -83,6 +83,7 @@ final class AgentBrowser {
             let (manager, id) = try target(args, focus: false)
             manager.closeTab(id: id)
             return .text("Closed tab \(id.uuidString)")
+        case "browser_fullscreen": return try await fullscreen(args)
         case "browser_navigate": return try await navigate(args)
         case "browser_history": return try await history(args)
         case "browser_snapshot": return try await snapshot(args)
@@ -135,6 +136,33 @@ final class AgentBrowser {
         }
         await waitForLoad(webView)
         return .text("Opened tab \(id.uuidString)\n" + pageInfo(webView))
+    }
+
+    private func fullscreen(_ args: [String: Any]) async throws -> Output {
+        let (manager, id) = try target(args, focus: true)
+        let webView = try webView(manager, id)
+        guard await waitForWindow(webView), let window = webView.window else {
+            throw AgentError("The browser window is not on screen.")
+        }
+        let isFull = window.styleMask.contains(.fullScreen)
+        let wantFull: Bool
+        switch args["action"] as? String ?? "toggle" {
+        case "enter": wantFull = true
+        case "exit": wantFull = false
+        case "toggle": wantFull = !isFull
+        default: throw AgentError("action must be enter, exit or toggle")
+        }
+        guard wantFull != isFull else { return .text(isFull ? "Window is already fullscreen." : "Window is not fullscreen.") }
+        AgentActivity.shared.mark(tabID: id, action: wantFull ? "Полный экран" : "Выход из полного экрана")
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.toggleFullScreen(nil)
+        // Анимация перехода в полноэкранный режим длится около секунды.
+        for _ in 0..<40 where window.styleMask.contains(.fullScreen) != wantFull {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        let now = window.styleMask.contains(.fullScreen)
+        guard now == wantFull else { throw AgentError("macOS did not change the fullscreen state.") }
+        return .text((now ? "Window is now fullscreen." : "Window left fullscreen.") + "\n" + pageInfo(webView))
     }
 
     private func navigate(_ args: [String: Any]) async throws -> Output {

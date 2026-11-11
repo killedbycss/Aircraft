@@ -54,6 +54,7 @@ claude mcp add --transport http aircraft http://127.0.0.1:7777/mcp --header "Aut
 | `browser_select_tab` / `browser_close_tab` | Переключить / закрыть вкладку |
 | `browser_navigate` | Открыть адрес и дождаться загрузки |
 | `browser_history` | Назад, вперёд, обновить |
+| `browser_fullscreen` | Окно во весь экран macOS и обратно |
 | `browser_snapshot` | Заголовки и видимые интерактивные элементы со ссылками `[e12]` |
 | `browser_get_text` | Текст страницы постранично |
 | `browser_screenshot` | JPEG видимой части; 1 пиксель = 1 CSS-пиксель |

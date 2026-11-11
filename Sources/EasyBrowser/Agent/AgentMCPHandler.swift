@@ -132,6 +132,12 @@ enum AgentTools {
              properties: ["tabId": tabID], required: ["tabId"]),
         tool("browser_close_tab", "Close tab", "Close a tab.",
              properties: ["tabId": tabID], destructive: true),
+        tool("browser_fullscreen", "Window fullscreen",
+             "Put the browser window that holds the tab into macOS fullscreen, take it out, or toggle. Returns the resulting state.",
+             properties: [
+                "action": ["type": "string", "enum": ["enter", "exit", "toggle"], "description": "Default toggle."],
+                "tabId": tabID
+             ]),
         tool("browser_navigate", "Navigate",
              "Load a URL (or search query) in a tab and wait until the page has loaded. Returns the final URL and title.",
              properties: [
