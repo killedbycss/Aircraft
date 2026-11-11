@@ -149,6 +149,10 @@ public struct BrowserShellView: View {
             guard isTargetWindow(notification) else { return }
             tabManager.goBackActiveTab()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleWebInspector)) { notification in
+            guard isTargetWindow(notification) else { return }
+            tabManager.toggleWebInspector()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .goForward)) { notification in
             guard isTargetWindow(notification) else { return }
             tabManager.goForwardActiveTab()

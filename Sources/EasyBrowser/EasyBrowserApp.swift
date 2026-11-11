@@ -73,6 +73,13 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
                 self?.openNewBrowserWindow()
                 return nil
             }
+            // F12 (keyCode 111) или ⌥⌘I — Web Inspector. Работает в любой раскладке.
+            let inspectorModifiers = modifiers.subtracting([.function, .numericPad])
+            if (event.keyCode == 111 && inspectorModifiers.isEmpty)
+                || (event.keyCode == 34 && inspectorModifiers == [.command, .option]) {
+                NotificationCenter.default.post(name: .toggleWebInspector, object: target)
+                return nil
+            }
             if key == "s", modifiers == [.control, .option] {
                 NotificationCenter.default.post(name: .toggleSidebar, object: target)
                 return nil
@@ -212,6 +219,12 @@ struct EasyBrowserApp: App {
                 }
             }
         }
+
+                Divider()
+
+                Button("Инструменты разработчика (F12)") {
+                    NotificationCenter.default.post(name: .toggleWebInspector, object: NSApp.keyWindow)
+                }
     }
 }
 
@@ -233,3 +246,4 @@ extension Notification.Name {
     static let goBack = Notification.Name("GoBack")
     static let goForward = Notification.Name("GoForward")
 }
+    static let toggleWebInspector = Notification.Name("ToggleWebInspector")

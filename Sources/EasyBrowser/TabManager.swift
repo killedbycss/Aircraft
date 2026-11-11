@@ -285,6 +285,29 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     }
 
     public func toggleModPanel(_ capability: String) {
+    /// Открывает или закрывает встроенный Web Inspector WebKit для активной вкладки (F12, ⌥⌘I).
+    /// Использует приватный `_WKInspector`, который WebKit отдаёт через `-[WKWebView _inspector]`.
+    public func toggleWebInspector() {
+        guard let webView = activeWebView else { return }
+        webView.configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        guard let inspector = Self.inspector(of: webView) else { return }
+        let isVisible = (inspector.value(forKey: "visible") as? Bool) ?? false
+        let action = NSSelectorFromString(isVisible ? "close" : "show")
+        if inspector.responds(to: action) { inspector.perform(action) }
+    }
+
+    static func closeWebInspector(of webView: WKWebView) {
+        guard let inspector = inspector(of: webView),
+              (inspector.value(forKey: "visible") as? Bool) == true else { return }
+        inspector.perform(NSSelectorFromString("close"))
+    }
+
+    private static func inspector(of webView: WKWebView) -> NSObject? {
+        let selector = NSSelectorFromString("_inspector")
+        guard webView.responds(to: selector) else { return nil }
+        return webView.perform(selector)?.takeUnretainedValue() as? NSObject
+    }
+
         if capability == "devtools" {
             activeWebView?.isInspectable = true
             let alert = NSAlert()
@@ -502,6 +525,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     private func createWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
+        // Включает встроенный Web Inspector (F12, «Проверить элемент» в контекстном меню).
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         scriptBridge.configure(userContentController: config.userContentController)
         loadCustomModifications(into: config.userContentController)
         AdBlocker.shared.attach(to: config.userContentController)

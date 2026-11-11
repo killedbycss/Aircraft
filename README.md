@@ -66,3 +66,4 @@ swift test
 Исходный код удобно публиковать в GitHub-репозитории, а собранный `Aircraft-0.3-alpha.zip` прикладывать к GitHub Release с тегом `v0.3-alpha`.
 
 Локальная сборка подписывается ad-hoc. Для распространения без предупреждений Gatekeeper потребуется сертификат Apple Developer ID, hardened runtime и notarization.
+- `F12` (или `fn F12`) / `⌥⌘I` — открыть/закрыть Web Inspector текущей вкладки; «Проверить элемент» есть в контекстном меню
