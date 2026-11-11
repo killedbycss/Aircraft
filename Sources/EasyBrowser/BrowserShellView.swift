@@ -342,6 +342,8 @@ public struct SettingsView: View {
     @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
     @AppStorage(AdBlocker.enabledKey) private var adBlockEnabled: Bool = false
     @AppStorage(AdBlocker.trackerEnabledKey) private var trackerBlockEnabled: Bool = false
+    @AppStorage(AdBlocker.yandexEnabledKey) private var yandexAdBlockEnabled: Bool = false
+    @AppStorage(AdBlocker.googleEnabledKey) private var googleAdBlockEnabled: Bool = false
     @State private var adBlockAllowlist: [String] = []
     @AppStorage("resourceMonitoring") private var resourceMonitoring: Bool = false
     @AppStorage("resourceLimitAlert") private var resourceLimitAlert: String = "none"
@@ -771,6 +773,19 @@ public struct SettingsView: View {
             .padding(.vertical, 2)
             .onChange(of: adBlockEnabled) { _, _ in AdBlocker.shared.rebuild(reloadPages: true) }
 
+            adBlockToggleRow(
+                symbol: "magnifyingglass", color: .orange,
+                title: "Блокировать рекламу Яндекса",
+                subtitle: "Директ в Поиске, Карты, Маркет, Музыка, РСЯ и Adfox на сайтах, обход анти-адблока",
+                isOn: $yandexAdBlockEnabled
+            )
+            adBlockToggleRow(
+                symbol: "play.rectangle.fill", color: .blue,
+                title: "Блокировать рекламу Google",
+                subtitle: "Реклама в поиске Google, AdSense на сайтах и ролики, баннеры и окна анти-адблока на YouTube",
+                isOn: $googleAdBlockEnabled
+            )
+
             HStack(spacing: 12) {
                 Image(systemName: "eye.slash.fill")
                     .font(.system(size: 13, weight: .medium))
@@ -791,7 +806,7 @@ public struct SettingsView: View {
             .padding(.vertical, 2)
             .onChange(of: trackerBlockEnabled) { _, _ in AdBlocker.shared.rebuild(reloadPages: true) }
 
-            if adBlockEnabled || trackerBlockEnabled {
+            if adBlockEnabled || trackerBlockEnabled || yandexAdBlockEnabled || googleAdBlockEnabled {
                 if let host = currentSiteHost {
                     Toggle("Отключить защиту на \(host)", isOn: Binding(
                         get: { adBlockAllowlist.contains(host) },
@@ -821,6 +836,28 @@ public struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
         .onAppear { adBlockAllowlist = AdBlocker.shared.allowlist }
+    }
+
+    private func adBlockToggleRow(symbol: String, color: Color, title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(color.gradient, in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+        }
+        .padding(.vertical, 2)
+        .onChange(of: isOn.wrappedValue) { _, _ in AdBlocker.shared.rebuild(reloadPages: true) }
     }
 
     private var modsPane: some View {
