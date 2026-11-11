@@ -9,7 +9,6 @@ import AppKit
 public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, ScriptBridgeDelegate {
     public var tabs: [TabModel] = []
     public var activeTabID: UUID?
-    public var isReaderModeActive: Bool = false
     /// Tabs shown in split mode. `activeTabID` is the pane receiving commands.
     public var splitPrimaryTabID: UUID?
     public var splitTabID: UUID?
@@ -686,33 +685,6 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         }
     }
 
-    public func toggleReaderMode() {
-        isReaderModeActive.toggle()
-        guard let webView = activeWebView else { return }
-        let css = isReaderModeActive ? """
-        body { max-width: 800px !important; margin: 0 auto !important; font-family: -apple-system, sans-serif !important; line-height: 1.6 !important; background-color: #fbfbfb !important; color: #222 !important; padding: 20px !important; }
-        nav, header, footer, sidebar, aside, .ad, .ads, .banner { display: none !important; }
-        """ : ""
-
-        let js = isReaderModeActive ? """
-        (function() {
-            var el = document.getElementById('easybrowser-reader-style');
-            if (!el) {
-                el = document.createElement('style');
-                el.id = 'easybrowser-reader-style';
-                el.innerHTML = `\(css)`;
-                document.head.appendChild(el);
-            }
-        })();
-        """ : """
-        (function() {
-            var el = document.getElementById('easybrowser-reader-style');
-            if (el) { el.remove(); }
-        })();
-        """
-        webView.evaluateJavaScript(js, completionHandler: nil)
-    }
-
     // MARK: - WKWebView Factory
 
     private func createWebView() -> WKWebView {
@@ -1035,6 +1007,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                     MarkdownViewer.stopWatching(webView)
                 }
                 self.editableFocusTabs.remove(id)
+                self.tabs[index].isReaderActive = false
+                self.tabs[index].isReaderable = false
                 self.cancelPermissionRequests(tabID: id)
                 if id == self.activeTabID, self.findBar.isVisible { self.closeFindBar() }
                 if self.tabs[index].isMuted { self.applyTabMediaState(id: id) }
@@ -1057,6 +1031,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                     }
                 }
                 self.saveSession()
+                if self.tabs[index].content == .web { await self.checkReaderAvailability(tabID: tabID, webView: webView) }
                 await self.updatePageBackground(for: tabID, from: webView)
                 await self.loadFavicon(for: tabID, from: webView)
             }

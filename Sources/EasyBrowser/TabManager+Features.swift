@@ -352,6 +352,10 @@ final class PageSignals: NSObject, WKScriptMessageHandler {
             else { manager.editableFocusTabs.remove(id) }
         case "pip":
             manager.tabs[index].isInPictureInPicture = body["active"] as? Bool == true
+        case "reader":
+            manager.tabs[index].isReaderActive = body["active"] as? Bool == true
+        case "readerSettings":
+            if let settings = body["settings"] as? [String: Any] { ReaderMode.settings = settings }
         default:
             break
         }

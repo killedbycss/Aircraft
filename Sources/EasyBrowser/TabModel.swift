@@ -36,6 +36,9 @@ public struct TabModel: Identifiable, Equatable {
     /// Страница сейчас пользуется камерой или микрофоном.
     public var isCapturingMedia = false
     public var isInPictureInPicture = false
+    /// На странице есть статья — доступен режим чтения.
+    public var isReaderable = false
+    public var isReaderActive = false
 
     public init(
         id: UUID = UUID(),
@@ -79,6 +82,8 @@ public struct TabModel: Identifiable, Equatable {
         lhs.isPlayingAudio == rhs.isPlayingAudio &&
         lhs.isMuted == rhs.isMuted &&
         lhs.isCapturingMedia == rhs.isCapturingMedia &&
-        lhs.isInPictureInPicture == rhs.isInPictureInPicture
+        lhs.isInPictureInPicture == rhs.isInPictureInPicture &&
+        lhs.isReaderable == rhs.isReaderable &&
+        lhs.isReaderActive == rhs.isReaderActive
     }
 }

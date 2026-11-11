@@ -2198,6 +2198,7 @@ public struct SidebarView: View {
                     HStack(spacing: 8) {
                         CurrentURLLabel(fontSize: 10 * tabScale)
                         Spacer(minLength: 0)
+                        PageActionButtons(fontSize: 10 * tabScale)
                         ReloadPageButton(fontSize: 10 * tabScale)
                     }
                     .frame(height: 28 * tabScale)
@@ -2212,6 +2213,7 @@ public struct SidebarView: View {
                     }) { Image(systemName: "sidebar.right") }
                     CurrentURLLabel(fontSize: 10 * tabScale)
                     Spacer(minLength: 0)
+                    PageActionButtons(fontSize: 10 * tabScale)
                     ReloadPageButton(fontSize: 10 * tabScale)
                     Button {
                         NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
@@ -2266,6 +2268,33 @@ public struct SidebarView: View {
         copiedTabID = tab.id
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             if copiedTabID == tab.id { copiedTabID = nil }
+        }
+    }
+}
+
+/// Режим чтения и закладка текущей страницы — рядом с кнопкой обновления.
+private struct PageActionButtons: View {
+    let fontSize: CGFloat
+    @Environment(TabManager.self) private var tabManager: TabManager
+
+    var body: some View {
+        if let tab = tabManager.activeTab, tab.url != nil {
+            HStack(spacing: 8) {
+                if tab.isReaderable || tab.isReaderActive {
+                    Button { tabManager.toggleReaderMode() } label: {
+                        Image(systemName: tab.isReaderActive ? "doc.plaintext.fill" : "doc.plaintext")
+                            .font(.system(size: fontSize, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Режим чтения (⌘⇧R)")
+                }
+                Button { tabManager.bookmarkEditorVisible.toggle() } label: {
+                    Image(systemName: tabManager.bookmarks.contains(tab.url) ? "bookmark.fill" : "bookmark")
+                        .font(.system(size: fontSize, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .help("Закладка (⌘D)")
+            }
         }
     }
 }
