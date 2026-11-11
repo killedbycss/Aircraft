@@ -3,6 +3,10 @@ import WebKit
 
 /// NSViewRepresentable контейнер для отображения активного WKWebView.
 /// КРИТИЧНО: Запрещено создавать инстансы WKWebView внутри метода makeNSView.
+///
+/// WKWebView раскладывается фреймами (autoresizing), а не Auto Layout: встроенный
+/// Web Inspector сам уменьшает фрейм страницы и кладёт свою view рядом в этот же
+/// контейнер. Констрейнты растягивали бы страницу обратно поверх инспектора.
 public struct WebContainerView: NSViewRepresentable {
     public let activeWebView: WKWebView?
 
@@ -19,27 +23,29 @@ public struct WebContainerView: NSViewRepresentable {
 
     public func updateNSView(_ nsView: NSView, context: Context) {
         guard let activeWebView = activeWebView else {
-            nsView.subviews.forEach { $0.removeFromSuperview() }
+            Self.detachAll(from: nsView)
             return
         }
 
-        // Если активный subview уже является activeWebView, повторное переподключение не требуется
-        if nsView.subviews.first === activeWebView {
-            return
-        }
+        // Активный WKWebView уже здесь (возможно, вместе с открытым инспектором).
+        if activeWebView.superview === nsView { return }
 
-        // Удаляем старый subview
-        nsView.subviews.forEach { $0.removeFromSuperview() }
-
-        // Привязываем новый WKWebView через Auto Layout constraints по краям контейнера
-        activeWebView.translatesAutoresizingMaskIntoConstraints = false
+        Self.detachAll(from: nsView)
+        activeWebView.removeFromSuperview()
+        activeWebView.translatesAutoresizingMaskIntoConstraints = true
+        activeWebView.autoresizingMask = [.width, .height]
+        activeWebView.frame = nsView.bounds
         nsView.addSubview(activeWebView)
+    }
 
-        NSLayoutConstraint.activate([
-            activeWebView.topAnchor.constraint(equalTo: nsView.topAnchor),
-            activeWebView.bottomAnchor.constraint(equalTo: nsView.bottomAnchor),
-            activeWebView.leadingAnchor.constraint(equalTo: nsView.leadingAnchor),
-            activeWebView.trailingAnchor.constraint(equalTo: nsView.trailingAnchor)
-        ])
+    /// Убирает всё из контейнера. Инспектор прежней вкладки закрываем, иначе
+    /// её страница осталась бы ужатой, а view инспектора — оторванной.
+    private static func detachAll(from container: NSView) {
+        for view in container.subviews {
+            if let webView = view as? WKWebView, !String(describing: type(of: webView)).contains("Inspector") {
+                TabManager.closeWebInspector(of: webView)
+            }
+        }
+        container.subviews.forEach { $0.removeFromSuperview() }
     }
 }
