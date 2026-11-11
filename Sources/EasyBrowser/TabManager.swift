@@ -86,6 +86,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 controller.removeAllUserScripts()
                 self.scriptBridge.configure(userContentController: controller)
                 self.loadCustomModifications(into: controller)
+                AdBlocker.shared.installPageScript(into: controller)
             }
         }
     }

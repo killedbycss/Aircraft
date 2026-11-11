@@ -12,17 +12,26 @@ final class AdBlocker {
 
     static let enabledKey = "adBlockEnabled"
     static let trackerEnabledKey = "trackerBlockEnabled"
+    static let yandexEnabledKey = "yandexAdBlockEnabled"
+    static let googleEnabledKey = "googleAdBlockEnabled"
     static let allowlistKey = "adBlockAllowlist"
     private static let ruleListIdentifier = "aircraft-adblock"
+    private static let siteRuleListIdentifier = "aircraft-adblock-sites"
 
-    /// Скомпилированные правила; nil, пока блокировщик выключен или правила компилируются.
-    private(set) var ruleList: WKContentRuleList?
+    /// Скомпилированные списки правил (общий и для Яндекса/Google). Пусто, пока защита
+    /// выключена или правила компилируются. Списки собираются отдельно, чтобы ошибка
+    /// в одном не отключала другой.
+    private(set) var ruleLists: [WKContentRuleList] = []
     private var compileGeneration = 0
 
     var isEnabled: Bool { UserDefaults.standard.bool(forKey: Self.enabledKey) }
     var blocksTrackers: Bool { UserDefaults.standard.bool(forKey: Self.trackerEnabledKey) }
+    /// Реклама Яндекса: Поиск, Карты, Маркет, Музыка, РСЯ и Adfox на любых сайтах.
+    var blocksYandexAds: Bool { UserDefaults.standard.bool(forKey: Self.yandexEnabledKey) }
+    /// Реклама Google: поиск, AdSense/Ad Manager на сайтах и YouTube.
+    var blocksGoogleAds: Bool { UserDefaults.standard.bool(forKey: Self.googleEnabledKey) }
     /// Работает ли хоть одна из защит.
-    var isActive: Bool { isEnabled || blocksTrackers }
+    var isActive: Bool { isEnabled || blocksTrackers || blocksYandexAds || blocksGoogleAds }
 
     /// Сайты, на которых реклама разрешена (без «www.»).
     var allowlist: [String] { UserDefaults.standard.stringArray(forKey: Self.allowlistKey) ?? [] }
@@ -33,8 +42,27 @@ final class AdBlocker {
 
     /// Подключает правила к вкладке (новые загрузки страниц будут фильтроваться).
     func attach(to controller: WKUserContentController) {
-        guard isActive, let ruleList else { return }
-        controller.add(ruleList)
+        if isActive { ruleLists.forEach(controller.add) }
+        installPageScript(into: controller)
+    }
+
+    /// Скрипт против рекламы YouTube и анти-адблока Яндекса (см. `SiteAdRules.pageScript`).
+    /// Заменяет прежнюю версию скрипта и не трогает остальные скрипты вкладки (моды).
+    func installPageScript(into controller: WKUserContentController) {
+        let wanted = (blocksYandexAds || blocksGoogleAds)
+            ? SiteAdRules.pageScript(yandex: blocksYandexAds, google: blocksGoogleAds, allowlist: allowlist)
+            : nil
+        let scripts = controller.userScripts
+        let ours = scripts.filter { $0.source.hasPrefix(SiteAdRules.scriptMarker) }
+        if ours.count == (wanted == nil ? 0 : 1), ours.first?.source == wanted { return }
+        if !ours.isEmpty {
+            controller.removeAllUserScripts()
+            scripts.filter { !$0.source.hasPrefix(SiteAdRules.scriptMarker) }.forEach(controller.addUserScript)
+        }
+        guard let wanted else { return }
+        // Мир страницы и все фреймы: так скрипт видит JSON.parse плеера и встроенные ролики YouTube.
+        controller.addUserScript(WKUserScript(
+            source: wanted, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
     }
 
     func isAllowed(host: String?) -> Bool {
@@ -54,21 +82,31 @@ final class AdBlocker {
     func rebuild(reloadPages: Bool) {
         compileGeneration += 1
         let generation = compileGeneration
-        guard isActive else {
-            ruleList = nil
+        var pending: [(String, String)] = []
+        if isEnabled || blocksTrackers {
+            pending.append((Self.ruleListIdentifier, Self.rulesJSON(ads: isEnabled, trackers: blocksTrackers, allowlist: allowlist)))
+        }
+        if blocksYandexAds || blocksGoogleAds {
+            pending.append((Self.siteRuleListIdentifier, Self.siteRulesJSON(yandex: blocksYandexAds, google: blocksGoogleAds, allowlist: allowlist)))
+        }
+        compile(pending, into: [], generation: generation, reloadPages: reloadPages)
+    }
+
+    private func compile(_ pending: [(String, String)], into done: [WKContentRuleList], generation: Int, reloadPages: Bool) {
+        guard let (identifier, json) = pending.first else {
+            ruleLists = done
             notify(reloadPages: reloadPages)
             return
         }
-        let json = Self.rulesJSON(ads: isEnabled, trackers: blocksTrackers, allowlist: allowlist)
         WKContentRuleListStore.default().compileContentRuleList(
-            forIdentifier: Self.ruleListIdentifier,
+            forIdentifier: identifier,
             encodedContentRuleList: json
         ) { [weak self] list, error in
             MainActor.assumeIsolated {
                 guard let self, generation == self.compileGeneration else { return }
-                if let error { print("Aircraft AdBlocker: не удалось собрать правила: \(error)") }
-                self.ruleList = list
-                self.notify(reloadPages: reloadPages)
+                if let error { print("Aircraft AdBlocker: не удалось собрать правила \(identifier): \(error)") }
+                self.compile(Array(pending.dropFirst()), into: done + (list.map { [$0] } ?? []),
+                             generation: generation, reloadPages: reloadPages)
             }
         }
     }
@@ -181,6 +219,16 @@ final class AdBlocker {
                 "action": ["type": "css-display-none", "selector": group.joined(separator: ", ")]
             ])
         }
+        return encoded(rules, allowlist: allowlist)
+    }
+
+    /// Правила против рекламы Яндекса и Google (см. `SiteAdRules`).
+    static func siteRulesJSON(yandex: Bool, google: Bool, allowlist: [String]) -> String {
+        encoded(SiteAdRules.rules(yandex: yandex, google: google), allowlist: allowlist)
+    }
+
+    private static func encoded(_ rules: [[String: Any]], allowlist: [String]) -> String {
+        var rules = rules
         // Исключения: на разрешённых сайтах все предыдущие правила отменяются.
         let allowedDomains = allowlist.compactMap { normalizedHost($0) }.map { "*\($0)" }
         if !allowedDomains.isEmpty {
