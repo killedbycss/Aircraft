@@ -166,6 +166,9 @@ enum AgentTools {
         tool("browser_screenshot", "Screenshot",
              "Take a JPEG screenshot of the visible part of the page.",
              properties: ["tabId": tabID], readOnly: true),
+        tool("browser_window_screenshot", "Window screenshot",
+             "Take a JPEG screenshot of the whole front browser window, including the tab panel, folders and toolbars.",
+             readOnly: true),
         tool("browser_click", "Click",
              "Click an element by ref from browser_snapshot, by visible text, or at viewport coordinates (CSS pixels, from a screenshot). Uses real mouse events when the tab is on screen.",
              properties: [

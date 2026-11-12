@@ -10,6 +10,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private(set) var window: NSWindow?
     private weak var boundManager: TabManager?
 
+    /// Открыть настройки на нужном разделе.
+    func show(pane: SettingsPane) {
+        show()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .selectSettingsPane, object: nil, userInfo: ["pane": pane.rawValue])
+        }
+    }
+
     func show() {
         let manager = AgentBrowser.frontmostManager
         let window = self.window ?? makeWindow()
@@ -65,4 +73,8 @@ private struct SettingsWindowRoot: View {
             .fontWeight(.medium)
             .preferredColorScheme(browserTheme == "dark" ? .dark : (browserTheme == "light" ? .light : nil))
     }
+}
+
+extension Notification.Name {
+    static let selectSettingsPane = Notification.Name("AircraftSelectSettingsPane")
 }

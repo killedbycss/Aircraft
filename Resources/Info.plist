@@ -11,9 +11,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.3</string>
+    <string>0.4</string>
     <key>CFBundleVersion</key>
-    <string>3</string>
+    <string>4</string>
     <key>AircraftReleaseStage</key>
     <string>alpha</string>
     <key>CFBundleIconFile</key>
@@ -34,6 +34,59 @@
             </array>
         </dict>
     </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>PDF</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.adobe.pdf</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Markdown</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>net.daringfireball.markdown</string>
+            </array>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>md</string>
+                <string>markdown</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>HTML</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.html</string>
+                <string>public.xhtml</string>
+            </array>
+        </dict>
+    </array>
+    <key>NSCameraUsageDescription</key>
+    <string>Сайты, которым вы разрешите, смогут использовать камеру — например, для видеозвонков.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Сайты, которым вы разрешите, смогут использовать микрофон — например, для звонков и голосовых сообщений.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>Сайты, которым вы разрешите, смогут узнать ваше местоположение — например, для карт.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Сайты, которым вы разрешите, смогут узнать ваше местоположение — например, для карт.</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
     <key>NSHighResolutionCapable</key>

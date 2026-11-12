@@ -54,6 +54,14 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: .closeActiveTab, object: target)
                 return nil
             }
+            if let command = self?.browserCommand(for: event, modifiers: modifiers, window: target) {
+                if command == "newIncognitoWindow" {
+                    self?.openNewBrowserWindow(incognito: true)
+                } else {
+                    NotificationCenter.default.post(name: .browserCommand, object: target, userInfo: ["command": command])
+                }
+                return nil
+            }
             // ⌘1…⌘8 — вкладка по номеру, ⌘9 — последняя вкладка.
             if modifiers == [.command], let key, key.count == 1, let number = Int(key), (1...9).contains(number) {
                 NotificationCenter.default.post(name: .selectTabByNumber, object: target, userInfo: ["number": number])
@@ -77,7 +85,7 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: .goForward, object: target)
                 return nil
             }
-            if key == "n", modifiers == [.command, .shift] {
+            if event.keyCode == 45, modifiers == [.command, .shift] {
                 self?.openNewBrowserWindow()
                 return nil
             }
@@ -102,13 +110,100 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
             self?.removeSystemCloseWindowShortcut()
         }
         AgentServer.shared.applySettings()
+        try? FileManager.default.removeItem(at: AircraftPaths.viewerCache)
+        // Остальные окна прошлой сессии (первое уже открыл WindowGroup).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            for id in SessionStore.shared.unclaimedWindowIDs {
+                self?.openNewBrowserWindow(restoreID: id)
+            }
+            self?.openPendingURLs()
+        }
+        TabArchiver.shared.start()
+    }
+
+    private var pendingURLs: [URL] = []
+    private var launched = false
+
+    /// Ссылки и файлы из других приложений и Finder.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        pendingURLs.append(contentsOf: urls)
+        if launched { openPendingURLs() }
+    }
+
+    private func openPendingURLs() {
+        launched = true
+        guard !pendingURLs.isEmpty else { return }
+        let urls = pendingURLs
+        pendingURLs = []
+        let manager = AgentBrowser.frontmostManager(includingIncognito: false)
+        guard let manager else { return }
+        manager.openFiles(urls)
+        manager.hostWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { openNewBrowserWindow(restoreID: SessionStore.shared.unclaimedWindowIDs.first) }
+        return false
+    }
+
+    /// Команды браузера по физическим клавишам (работают в любой раскладке).
+    private func browserCommand(for event: NSEvent, modifiers: NSEvent.ModifierFlags, window: NSWindow?) -> String? {
+        let mods = modifiers.subtracting([.function, .numericPad, .capsLock])
+        let code = event.keyCode
+        switch (code, mods) {
+        case (3, [.command]): return "find"                       // ⌘F
+        case (5, [.command]): return "findNext"                   // ⌘G
+        case (5, [.command, .shift]): return "findPrevious"       // ⌘⇧G
+        case (17, [.command, .shift]): return "reopenClosedTab"   // ⌘⇧T
+        case (24, [.command]), (24, [.command, .shift]), (69, [.command]): return "zoomIn"   // ⌘= / ⌘+
+        case (27, [.command]), (78, [.command]): return "zoomOut"  // ⌘−
+        case (29, [.command]), (82, [.command]): return "zoomReset" // ⌘0
+        case (8, [.command, .shift]): return "copyURL"            // ⌘⇧C
+        case (46, [.command, .shift]): return "toggleMute"        // ⌘⇧M
+        case (2, [.command]): return "addBookmark"                // ⌘D
+        case (11, [.command, .shift]): return "showBookmarks"     // ⌘⇧B
+        case (16, [.command]): return "showHistory"               // ⌘Y
+        case (35, [.command, .shift]): return "newIncognitoWindow" // ⌘⇧P
+        case (31, [.command]): return "openFile"                  // ⌘O
+        case (15, [.command, .shift]): return "toggleReader"      // ⌘⇧R
+        case (123, [.option]), (124, [.option]):
+            guard !Self.isEditingText(in: window) else { return nil }
+            return code == 123 ? "previousTab" : "nextTab"
+        default:
+            break
+        }
+        // ⌃1…⌃9 — профиль по номеру.
+        if mods == [.control], let characters = event.charactersIgnoringModifiers, let number = Int(characters), (1...9).contains(number) {
+            return "profile\(number)"
+        }
+        if mods == [.control], let index = [18, 19, 20, 21, 23, 22, 26, 28, 25].firstIndex(of: Int(code)) {
+            return "profile\(index + 1)"
+        }
+        return nil
+    }
+
+    /// Курсор стоит в поле ввода (Spotlight, поле на странице) — ⌥← / ⌥→ двигают его по словам.
+    private static func isEditingText(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        if window.firstResponder is NSText { return true }
+        guard let manager = AgentBrowser.manager(for: window) else { return false }
+        return manager.activePageHasEditableFocus
     }
 
     func applicationDidUpdate(_ notification: Notification) {
         removeSystemCloseWindowShortcut()
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        SessionStore.shared.isTerminating = true
+        SessionStore.shared.flush()
+        return .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        SessionStore.shared.isTerminating = true
+        SessionStore.shared.flush()
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
         AgentServer.shared.stop()
@@ -139,28 +234,74 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func openNewBrowserWindow() {
+    /// Новое окно: пустое, восстановленное из сессии или инкогнито.
+    func openNewBrowserWindow(restoreID: UUID? = nil, incognito: Bool = false, profileID: UUID? = nil) {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.contentViewController = NSHostingController(rootView: BrowserWindowRoot())
+        window.isReleasedWhenClosed = false
+        let profile = profileID ?? (incognito ? nil : AgentBrowser.frontmostManager(includingIncognito: false)?.profileID)
+        window.contentViewController = NSHostingController(rootView: BrowserWindowRoot(
+            mode: restoreID.map { .restore($0) } ?? (incognito ? .incognito : .fresh(profile))))
+        if incognito { window.title = "Инкогнито" }
         window.center()
+        if let key = NSApp.keyWindow, key !== SettingsWindowController.shared.window {
+            window.setFrameTopLeftPoint(NSPoint(x: key.frame.minX + 24, y: key.frame.maxY - 24))
+        }
         let controller = NSWindowController(window: window)
         additionalWindows.append(controller)
         controller.showWindow(nil)
         window.makeKeyAndOrderFront(nil)
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.additionalWindows.removeAll { $0.window === window }
+            }
+        }
     }
 }
 
+/// Как открыть окно браузера.
+enum BrowserWindowMode {
+    /// Первое окно приложения: берёт окно из прошлой сессии.
+    case launch
+    case restore(UUID)
+    case fresh(UUID?)
+    case incognito
+}
+
+/// TabManager создаётся лениво один раз: SwiftUI может пересоздавать структуру окна.
+@MainActor
+final class BrowserWindowModel {
+    let mode: BrowserWindowMode
+    init(mode: BrowserWindowMode) { self.mode = mode }
+
+    lazy var manager: TabManager = {
+        switch mode {
+        case .launch:
+            return TabManager(window: SessionStore.shared.claimWindow(), incognito: false)
+        case .restore(let id):
+            return TabManager(window: SessionStore.shared.claimWindow(id: id), incognito: false)
+        case .fresh(let profileID):
+            return TabManager(window: nil, incognito: false, profileID: profileID)
+        case .incognito:
+            return TabManager(window: nil, incognito: true)
+        }
+    }()
+}
+
 struct BrowserWindowRoot: View {
-    @State private var tabManager = TabManager()
+    @State private var model: BrowserWindowModel
+
+    init(mode: BrowserWindowMode = .launch) {
+        _model = State(initialValue: BrowserWindowModel(mode: mode))
+    }
 
     var body: some View {
         BrowserShellView()
-            .environment(tabManager)
+            .environment(model.manager)
     }
 }
 
@@ -180,6 +321,39 @@ struct EasyBrowserApp: App {
                     NotificationCenter.default.post(name: .createHomeTab, object: NSApp.keyWindow)
                 }
                 .keyboardShortcut("n", modifiers: [.command])
+                Button("Новое окно") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("Новое окно инкогнито") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true) }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                Divider()
+                Button("Открыть файл…") { browserCommand("openFile") }
+                    .keyboardShortcut("o", modifiers: [.command])
+            }
+
+            CommandMenu("История") {
+                Button("Показать историю") { browserCommand("showHistory") }
+                    .keyboardShortcut("y", modifiers: [.command])
+                Button("Вернуть закрытую вкладку") { browserCommand("reopenClosedTab") }
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
+                Button("Архив вкладок") { browserCommand("showArchive") }
+            }
+
+            CommandMenu("Закладки") {
+                Button("Добавить в закладки…") { browserCommand("addBookmark") }
+                    .keyboardShortcut("d", modifiers: [.command])
+                Button("Показать закладки") { browserCommand("showBookmarks") }
+                    .keyboardShortcut("b", modifiers: [.command, .shift])
+                Divider()
+                Button("Добавить сайт в Dock…") { browserCommand("addToDock") }
+            }
+
+            CommandGroup(after: .textEditing) {
+                Button("Найти на странице…") { browserCommand("find") }
+                    .keyboardShortcut("f", modifiers: [.command])
+                Button("Найти следующее") { browserCommand("findNext") }
+                    .keyboardShortcut("g", modifiers: [.command])
+                Button("Найти предыдущее") { browserCommand("findPrevious") }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
             }
 
             CommandGroup(replacing: .appSettings) {
@@ -198,6 +372,16 @@ struct EasyBrowserApp: App {
                 Button("Показать/скрыть вкладки") {
                     NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
                 }
+                Divider()
+                Button("Увеличить") { browserCommand("zoomIn") }
+                    .keyboardShortcut("=", modifiers: [.command])
+                Button("Уменьшить") { browserCommand("zoomOut") }
+                    .keyboardShortcut("-", modifiers: [.command])
+                Button("Реальный размер") { browserCommand("zoomReset") }
+                    .keyboardShortcut("0", modifiers: [.command])
+                Divider()
+                Button("Режим чтения") { browserCommand("toggleReader") }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
                 .keyboardShortcut("s", modifiers: [.control, .option])
             }
 
@@ -217,6 +401,18 @@ struct EasyBrowserApp: App {
                 Button("Обновить вкладку") {
                     NotificationCenter.default.post(name: .reloadActiveTab, object: NSApp.keyWindow)
                 }
+
+                Button("Скопировать ссылку") { browserCommand("copyURL") }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                Button("Выключить/включить звук") { browserCommand("toggleMute") }
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
+                Button("Картинка в картинке") { browserCommand("pictureInPicture") }
+                Button("Новая папка") { browserCommand("newFolder") }
+
+                Divider()
+
+                Button("Предыдущая вкладка") { browserCommand("previousTab") }
+                Button("Следующая вкладка") { browserCommand("nextTab") }
 
                 Divider()
 
@@ -247,6 +443,12 @@ struct EasyBrowserApp: App {
     }
 }
 
+/// Команда для окна, которое сейчас впереди.
+@MainActor
+func browserCommand(_ command: String) {
+    NotificationCenter.default.post(name: .browserCommand, object: NSApp.keyWindow, userInfo: ["command": command])
+}
+
 extension Notification.Name {
     static let openSettings = Notification.Name("OpenSettings")
     static let focusLocation = Notification.Name("FocusLocation")
@@ -266,4 +468,6 @@ extension Notification.Name {
     static let goForward = Notification.Name("GoForward")
     static let toggleWebInspector = Notification.Name("ToggleWebInspector")
     static let startElementPicker = Notification.Name("StartElementPicker")
+    /// Команда браузера для окна: userInfo["command"].
+    static let browserCommand = Notification.Name("AircraftBrowserCommand")
 }

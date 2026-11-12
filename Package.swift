@@ -19,7 +19,8 @@ let package = Package(
     ],
     products: [
         .executable(name: "Aircraft", targets: ["aircraft"]),
-        .executable(name: "aircraft-mcp", targets: ["AircraftMCP"])
+        .executable(name: "aircraft-mcp", targets: ["AircraftMCP"]),
+        .executable(name: "aircraft-webapp", targets: ["AircraftWebApp"])
     ],
     targets: [
         .executableTarget(
@@ -39,6 +40,11 @@ let package = Package(
         .executableTarget(
             name: "AircraftMCP",
             path: "Sources/AircraftMCP"
+        ),
+        // Сайт как отдельное приложение («Добавить в Dock»): Aircraft копирует этот бинарник в .app.
+        .executableTarget(
+            name: "AircraftWebApp",
+            path: "Sources/AircraftWebApp"
         ),
         .testTarget(
             name: "AircraftTests",

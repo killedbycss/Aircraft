@@ -9,7 +9,6 @@ import AppKit
 public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, ScriptBridgeDelegate {
     public var tabs: [TabModel] = []
     public var activeTabID: UUID?
-    public var isReaderModeActive: Bool = false
     /// Tabs shown in split mode. `activeTabID` is the pane receiving commands.
     public var splitPrimaryTabID: UUID?
     public var splitTabID: UUID?
@@ -23,30 +22,77 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     private var adBlockObserver: NSObjectProtocol?
     private var userScriptRefreshTask: Task<Void, Never>?
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]
+    /// Скачивания для просмотрщиков PDF и Markdown.
+    @ObservationIgnored var pendingViewerDownloads: [UUID: (kind: ViewerKind, url: URL?)] = [:]
+    @ObservationIgnored var viewerDownloads: [ObjectIdentifier: (tabID: UUID, kind: ViewerKind, url: URL?)] = [:]
     /// Из какой вкладки открыта вкладка — чтобы новые вставали подряд справа от «родителя».
     private var openedFrom: [UUID: UUID] = [:]
     private var webViewObservers: [UUID: [NSKeyValueObservation]] = [:]
     private var mobileBrowsing = false
-    private static let sessionKey = "browserSessionV1"
 
-    private struct SavedSession: Codable {
-        var tabs: [SavedTab]
-        var activeTabID: UUID?
+    // MARK: Окно, профиль, дерево
+
+    /// Окно в сессии (`session.json`).
+    public let windowID: UUID
+    /// Окно инкогнито: своё хранилище в памяти, ничего не пишется на диск.
+    public let isIncognito: Bool
+    public private(set) var profileID: UUID
+    /// Порядок вкладок, папки и группы.
+    public var tree = SidebarTree()
+    /// Недавно закрытые вкладки этого окна (⌘⇧T), новые — в конце.
+    public var closedTabs: [ClosedTab] = []
+    public static let closedTabsLimit = 25
+    /// Вкладки других профилей этого окна (пока окно показывает текущий).
+    @ObservationIgnored private var otherSets: [String: SavedTabSet] = [:]
+    @ObservationIgnored public weak var hostWindow: NSWindow?
+    @ObservationIgnored lazy var incognitoStore: WKWebsiteDataStore = .nonPersistent()
+    @ObservationIgnored lazy var incognitoSites = SiteSettingsStore(url: nil, seed: ProfileStore.shared.sites(for: profileID).sites)
+    @ObservationIgnored private var kvoTokens: [UUID: [KeyValueToken]] = [:]
+    @ObservationIgnored let pageSignals = PageSignals()
+    /// Вкладки, открытые как всплывающие окна входа — их не группируем.
+    @ObservationIgnored private var popupTabIDs: Set<UUID> = []
+    /// Вкладки, где адрес ввели в Spotlight (для ранжирования истории).
+    @ObservationIgnored var typedNavigations: Set<UUID> = []
+
+    // MARK: Состояние интерфейса окна
+
+    /// Плашка поиска по странице (⌘F).
+    public var findBar = FindBarState()
+    /// Короткое уведомление поверх страницы («Ссылка скопирована», «110 %»).
+    public var toast: ToastMessage?
+    /// Запрос разрешения от сайта, ожидающий ответа.
+    public var permissionRequests: [PermissionRequest] = []
+    /// Папка, у которой сейчас редактируется название.
+    public var renamingFolderID: UUID?
+    /// Вкладки, выделенные ⌘-кликом в панели.
+    public var selectedTabIDs: Set<UUID> = []
+    /// Открыт ли поповер «Добавить в закладки» (⌘D).
+    public var bookmarkEditorVisible = false
+    /// Фокус на странице стоит в поле ввода (для ⌥← / ⌥→).
+    @ObservationIgnored public var editableFocusTabs: Set<UUID> = []
+
+    public convenience override init() {
+        self.init(window: SessionStore.shared.claimWindow(), incognito: false)
     }
 
-    private struct SavedTab: Codable {
-        var id: UUID
-        var title: String
-        var url: URL?
-        var isPinned: Bool
-        var pinnedURL: URL?
-    }
-
-    public override init() {
+    public init(window saved: SavedWindow?, incognito: Bool, profileID requestedProfile: UUID? = nil) {
+        let profiles = ProfileStore.shared
+        isIncognito = incognito
+        windowID = incognito ? UUID() : (saved?.id ?? UUID())
+        profileID = profiles.profile(requestedProfile ?? saved?.activeProfileID ?? profiles.lastUsedProfileID).id
         super.init()
         scriptBridge.delegate = self
+        pageSignals.manager = self
         AgentBrowser.register(self)
-        restoreSession()
+        if incognito {
+            createNewTab()
+        } else {
+            otherSets = saved?.sets ?? [:]
+            let set = otherSets.removeValue(forKey: profileID.uuidString)
+            load(set)
+            SessionStore.shared.register(self)
+            profiles.lastUsedProfileID = profileID
+        }
         refreshInstalledModCapabilities()
         storageObserver = NotificationCenter.default.addObserver(forName: .modStorageDidChange, object: nil, queue: .main) { [weak self] notification in
             // Готовим JS-строку здесь, чтобы не передавать Any между потоками.
@@ -84,6 +130,11 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             for tab in self.tabs {
                 guard let controller = tab.webView?.configuration.userContentController else { continue }
                 controller.removeAllUserScripts()
+                self.pageSignals.install(into: controller)
+                if AgentServer.isEnabled {
+                    controller.addUserScript(WKUserScript(source: AgentBrowser.consoleCaptureSource, injectionTime: .atDocumentStart,
+                                                          forMainFrameOnly: true, in: .page))
+                }
                 self.scriptBridge.configure(userContentController: controller)
                 self.loadCustomModifications(into: controller)
                 AdBlocker.shared.installPageScript(into: controller)
@@ -109,17 +160,22 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         return tab.webView
     }
 
-    public var canGoBack: Bool { activeTab?.webView?.canGoBack == true }
+    public var canGoBack: Bool {
+        if case .pdf = activeTab?.content, let pageURL = activeTab?.webView?.url, pageURL != activeTab?.url { return true }
+        return activeTab?.webView?.canGoBack == true
+    }
     public var canGoForward: Bool { activeTab?.webView?.canGoForward == true }
 
     // MARK: - Управление вкладками
 
     @discardableResult
-    public func createNewTab(url: URL? = nil, selectNewTab: Bool = true, afterTabID: UUID? = nil) -> UUID {
+    public func createNewTab(url: URL? = nil, selectNewTab: Bool = true, afterTabID: UUID? = nil,
+                             openedByPage: Bool = false) -> UUID {
         let previouslyFocusedID = activeTabID
+        let viewer = url.flatMap(Self.viewerContent(forLocal:))
         let webView = url == nil ? nil : createWebView()
 
-        let newTab = TabModel(
+        var newTab = TabModel(
             id: UUID(),
             title: "Новая вкладка",
             url: url,
@@ -130,8 +186,9 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             favicon: nil,
             webView: webView
         )
+        if let viewer { newTab.content = viewer }
 
-        insertTab(newTab, after: afterTabID)
+        insertTab(newTab, after: afterTabID, openedByPage: openedByPage)
         if let webView { setupObservations(for: newTab.id, webView: webView) }
 
         if selectNewTab || activeTabID == nil {
@@ -142,7 +199,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             activeTabID = newTab.id
         }
 
-        if let url, let webView { webView.load(URLRequest(url: url)) }
+        if let url, let webView { load(url, in: webView, tabID: newTab.id) }
         saveSession()
         return newTab.id
     }
@@ -158,40 +215,72 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 splitPrimaryTabID = id
             }
         }
+        if let previous = activeTabID, previous != id, let index = tabs.firstIndex(where: { $0.id == previous }) {
+            tabs[index].lastActiveAt = Date()
+            if Self.autoPictureInPicture, tabs[index].isPlayingAudio, tabs[index].content == .web,
+               previous != splitTabID, previous != splitPrimaryTabID {
+                togglePictureInPicture(id: previous, enterOnly: true)
+            }
+        }
         activeTabID = id
+        if let index = tabs.firstIndex(where: { $0.id == id }) { tabs[index].lastActiveAt = Date() }
+        tree.reveal(id)
+        if findBar.isVisible { closeFindBar() }
         if let tab = tabs.first(where: { $0.id == id }), (tab.isHibernated || tab.webView == nil) {
             if tab.url != nil { restoreTab(id: id) }
         }
         saveSession()
     }
 
-    public func closeTab(id: UUID) {
+    /// Закрывает вкладку. `remember == false` — не класть в «Недавно закрытые» (архив кладёт сам).
+    public func closeTab(id: UUID, remember: Bool = true) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
 
+        if remember, let record = closedRecord(for: id) {
+            closedTabs.append(record)
+            if closedTabs.count > Self.closedTabsLimit { closedTabs.removeFirst(closedTabs.count - Self.closedTabsLimit) }
+        }
         removeObservations(for: id)
         openedFrom.removeValue(forKey: id)
+        popupTabIDs.remove(id)
+        editableFocusTabs.remove(id)
+        cancelPermissionRequests(tabID: id)
         let tabToClose = tabs[index]
         tabToClose.webView?.stopLoading()
         tabToClose.webView?.navigationDelegate = nil
         tabToClose.webView?.uiDelegate = nil
+        if case .pdf(let file) = tabToClose.content, file.path.hasPrefix(AircraftPaths.viewerCache.path) {
+            try? FileManager.default.removeItem(at: file)
+        }
+        if let webView = tabToClose.webView { MarkdownViewer.stopWatching(webView) }
 
+        // Следующей активной становится соседняя вкладка в порядке отображения.
+        let order = tree.visibleTabIDs
+        let position = order.firstIndex(of: id)
+        tree.removeNode(id)
+        tree.dissolveSmallGroups()
         tabs.remove(at: index)
+        syncTabOrder()
+
         if splitPrimaryTabID == id || splitTabID == id {
             let survivor = splitPrimaryTabID == id ? splitTabID : splitPrimaryTabID
             splitPrimaryTabID = nil
             splitTabID = nil
-            if activeTabID == id { activeTabID = survivor }
+            if activeTabID == id, let survivor {
+                activeTabID = nil
+                selectTab(id: survivor)
+            }
         }
 
         if activeTabID == id {
-            if tabs.indices.contains(index) {
-                activeTabID = tabs[index].id
-            } else if let last = tabs.last {
-                activeTabID = last.id
+            let remaining = tree.visibleTabIDs.isEmpty ? tree.orderedTabIDs : tree.visibleTabIDs
+            let candidate = position.flatMap { remaining.indices.contains($0) ? remaining[$0] : nil } ?? remaining.last
+            activeTabID = nil
+            if let candidate {
+                selectTab(id: candidate)
             } else {
-                activeTabID = nil
                 createNewTab()
-                NotificationCenter.default.post(name: .showEmptySpotlight, object: nil)
+                NotificationCenter.default.post(name: .showEmptySpotlight, object: hostWindow)
             }
         }
         saveSession()
@@ -199,23 +288,35 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
     public func togglePinTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        tabs[index].isPinned.toggle()
-        tabs[index].pinnedURL = tabs[index].isPinned ? tabs[index].url : nil
-        let tab = tabs.remove(at: index)
-        if tab.isPinned {
-            if let lastPinnedIndex = tabs.lastIndex(where: { $0.isPinned }) {
-                tabs.insert(tab, at: lastPinnedIndex + 1)
-            } else {
-                tabs.insert(tab, at: 0)
-            }
+        let pinning = !tabs[index].isPinned
+        if pinning {
+            tree.move(id, to: .pinnedRoot)
         } else {
-            if let firstUnpinnedIndex = tabs.firstIndex(where: { !$0.isPinned }) {
-                tabs.insert(tab, at: firstUnpinnedIndex)
-            } else {
-                tabs.append(tab)
+            tree.move(id, to: .regularRoot, at: 0)
+        }
+        tree.dissolveSmallGroups()
+        syncPinnedFlags()
+        syncTabOrder()
+        saveSession()
+    }
+
+    /// Флаг «закреплена» следует за зоной в дереве; адрес закрепления запоминается при закреплении.
+    func syncPinnedFlags() {
+        for index in tabs.indices {
+            let pinned = tree.zone(of: tabs[index].id) == .pinned
+            if pinned != tabs[index].isPinned {
+                tabs[index].isPinned = pinned
+                tabs[index].pinnedURL = pinned ? tabs[index].url : nil
             }
         }
-        saveSession()
+    }
+
+    /// `tabs` хранится в порядке дерева: на этом порядке держатся ⌘1…⌘9 и агенты.
+    func syncTabOrder() {
+        let order = tree.orderedTabIDs
+        let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        let sorted = tabs.sorted { (position[$0.id] ?? Int.max) < (position[$1.id] ?? Int.max) }
+        if sorted.map(\.id) != tabs.map(\.id) { tabs = sorted }
     }
 
     public func closeActiveTabFromShortcut() {
@@ -340,6 +441,11 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
         let currentURL = tabs[index].webView?.url ?? tabs[index].url
         let currentTitle = tabs[index].webView?.title ?? tabs[index].title
+        if let state = tabs[index].webView?.interactionState as? Data { tabs[index].interactionState = state }
+        if let webView = tabs[index].webView {
+            TabManager.closeWebInspector(of: webView)
+            MarkdownViewer.stopWatching(webView)
+        }
 
         removeObservations(for: id)
         tabs[index].webView?.stopLoading()
@@ -351,6 +457,10 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         tabs[index].title = currentTitle
         tabs[index].isLoading = false
         tabs[index].isHibernated = true
+        tabs[index].isPlayingAudio = false
+        tabs[index].isCapturingMedia = false
+        tabs[index].isInPictureInPicture = false
+        editableFocusTabs.remove(id)
         saveSession()
     }
 
@@ -365,7 +475,13 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         tabs[index].isHibernated = false
         setupObservations(for: id, webView: webView)
 
-        if let url = tab.url { webView.load(URLRequest(url: url)) }
+        if tab.content == .web, let state = tab.interactionState {
+            webView.interactionState = state
+            tabs[index].interactionState = nil
+        } else if let url = tab.url {
+            load(url, in: webView, tabID: id)
+        }
+        applyTabMediaState(id: id)
     }
 
     public func navigateActiveTab(to urlString: String) {
@@ -388,8 +504,10 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         }
 
         tabs[index].url = targetURL
-        tabs[index].title = targetURL.host ?? "Новая вкладка"
-        tabs[index].webView?.load(URLRequest(url: targetURL))
+        tabs[index].title = targetURL.host ?? (targetURL.isFileURL ? targetURL.lastPathComponent : "Новая вкладка")
+        tabs[index].content = Self.viewerContent(forLocal: targetURL) ?? .web
+        typedNavigations.insert(activeTabID)
+        if let webView = tabs[index].webView { load(targetURL, in: webView, tabID: activeTabID) }
         saveSession()
     }
 
@@ -407,6 +525,14 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     }
 
     public func goBackActiveTab() {
+        // Из PDF, открытого со страницы, «назад» возвращает на эту страницу.
+        if let id = activeTabID, let index = tabs.firstIndex(where: { $0.id == id }),
+           case .pdf = tabs[index].content, let pageURL = tabs[index].webView?.url, pageURL != tabs[index].url {
+            tabs[index].content = .web
+            tabs[index].url = pageURL
+            tabs[index].title = tabs[index].webView?.title ?? tabs[index].title
+            return
+        }
         activeTab?.webView?.goBack()
     }
 
@@ -431,45 +557,114 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     public func resetResources(scope: String) {
         switch scope {
         case "allTabs":
-            for id in tabs.compactMap({ $0.url == nil ? nil : $0.id }) { hibernateTab(id: id) }
+            for id in tabs.compactMap({ $0.url == nil || $0.isBusy ? nil : $0.id }) { hibernateTab(id: id) }
         case "webCache":
             let types = WKWebsiteDataStore.allWebsiteDataTypes()
-            WKWebsiteDataStore.default().removeData(ofTypes: types, modifiedSince: .distantPast) {}
+            websiteDataStore.removeData(ofTypes: types, modifiedSince: .distantPast) {}
         default:
-            for tab in tabs where tab.id != activeTabID && tab.url != nil { hibernateTab(id: tab.id) }
+            for tab in tabs where tab.id != activeTabID && tab.url != nil && !tab.isBusy { hibernateTab(id: tab.id) }
         }
     }
 
-    private func saveSession() {
-        let saved = SavedSession(
-            tabs: tabs.map { SavedTab(id: $0.id, title: $0.title, url: $0.url, isPinned: $0.isPinned, pinnedURL: $0.pinnedURL) },
-            activeTabID: activeTabID
-        )
-        guard let data = try? JSONEncoder().encode(saved) else { return }
-        Foundation.UserDefaults.standard.set(data, forKey: Self.sessionKey)
+    /// Сессия пишется на диск с задержкой (см. `SessionStore`); инкогнито не пишется вовсе.
+    func saveSession() {
+        guard !isIncognito else { return }
+        SessionStore.shared.markDirty()
     }
 
-    private func restoreSession() {
-        guard let data = Foundation.UserDefaults.standard.data(forKey: Self.sessionKey),
-              let saved = try? JSONDecoder().decode(SavedSession.self, from: data),
-              !saved.tabs.isEmpty else {
+    /// Загружает вкладки профиля. Все вкладки усыплены, проснётся только активная.
+    private func load(_ set: SavedTabSet?) {
+        tabs = []
+        tree = SidebarTree()
+        closedTabs = []
+        activeTabID = nil
+        guard let set, !set.tabs.isEmpty else {
             createNewTab()
             return
         }
-        tabs = saved.tabs.map {
-            TabModel(
-                id: $0.id,
-                title: $0.title,
-                url: $0.url,
+        tabs = set.tabs.map { saved in
+            var tab = TabModel(
+                id: saved.id,
+                title: saved.title,
+                url: saved.url,
                 isLoading: false,
-                isHibernated: $0.url != nil,
-                isPinned: $0.isPinned,
-                pinnedURL: $0.pinnedURL,
+                isHibernated: saved.url != nil,
+                isPinned: saved.isPinned,
+                pinnedURL: saved.pinnedURL,
                 favicon: nil,
                 webView: nil
             )
+            tab.lastActiveAt = saved.lastActiveAt ?? Date()
+            tab.interactionState = saved.interactionState
+            if let url = saved.url, let viewer = Self.viewerContent(forLocal: url) { tab.content = viewer }
+            return tab
         }
-        activeTabID = tabs.contains(where: { $0.id == saved.activeTabID }) ? saved.activeTabID : tabs.first?.id
+        tree = set.tree
+        tree.reconcile(with: tabs.map(\.id), pinnedIDs: Set(tabs.filter(\.isPinned).map(\.id)))
+        syncPinnedFlags()
+        syncTabOrder()
+        closedTabs = set.closed
+        activeTabID = tabs.contains(where: { $0.id == set.activeTabID }) ? set.activeTabID : tabs.first?.id
+    }
+
+    /// Текущие вкладки в виде, пригодном для записи.
+    func currentTabSet() -> SavedTabSet {
+        var set = SavedTabSet()
+        set.tabs = tabs.map { tab in
+            let state = (tab.webView?.interactionState as? Data) ?? tab.interactionState
+            return SavedTab(id: tab.id, title: tab.title, url: tab.url, isPinned: tab.isPinned, pinnedURL: tab.pinnedURL,
+                            lastActiveAt: tab.lastActiveAt, interactionState: tab.content == .web ? state : nil)
+        }
+        set.tree = tree
+        set.activeTabID = activeTabID
+        set.closed = closedTabs
+        return set
+    }
+
+    func snapshotWindow() -> SavedWindow {
+        var sets = otherSets
+        sets[profileID.uuidString] = currentTabSet()
+        return SavedWindow(id: windowID, activeProfileID: profileID, sets: sets)
+    }
+
+    /// Переключает окно на другой профиль. Вкладки прежнего профиля выгружаются из памяти
+    /// и вернутся, когда профиль выберут снова.
+    public func switchProfile(to id: UUID) {
+        guard !isIncognito, id != profileID, ProfileStore.shared.profiles.contains(where: { $0.id == id }) else { return }
+        splitPrimaryTabID = nil
+        splitTabID = nil
+        if findBar.isVisible { closeFindBar() }
+        let current = currentTabSet()
+        for tab in tabs {
+            removeObservations(for: tab.id)
+            tab.webView?.stopLoading()
+            tab.webView?.navigationDelegate = nil
+            tab.webView?.uiDelegate = nil
+        }
+        otherSets[profileID.uuidString] = current
+        profileID = id
+        ProfileStore.shared.lastUsedProfileID = id
+        permissionRequests.forEach { $0.respond(false) }
+        permissionRequests = []
+        editableFocusTabs = []
+        load(otherSets.removeValue(forKey: id.uuidString))
+        if let activeTabID { restoreTab(id: activeTabID) }
+        saveSession()
+        if activeTab?.url == nil {
+            NotificationCenter.default.post(name: .showEmptySpotlight, object: hostWindow)
+        }
+    }
+
+    /// Профиль удалили: если окно его показывало — переходим на профиль по умолчанию.
+    func profileWasDeleted(_ id: UUID) {
+        otherSets[id.uuidString] = nil
+        if profileID == id {
+            let fallback = ProfileStore.shared.defaultProfile.id
+            otherSets[profileID.uuidString] = nil
+            profileID = fallback
+            load(otherSets.removeValue(forKey: fallback.uuidString))
+            saveSession()
+        }
     }
 
     /// Recreates the web views so newly added CSS/JS modifications apply immediately.
@@ -495,37 +690,14 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         }
     }
 
-    public func toggleReaderMode() {
-        isReaderModeActive.toggle()
-        guard let webView = activeWebView else { return }
-        let css = isReaderModeActive ? """
-        body { max-width: 800px !important; margin: 0 auto !important; font-family: -apple-system, sans-serif !important; line-height: 1.6 !important; background-color: #fbfbfb !important; color: #222 !important; padding: 20px !important; }
-        nav, header, footer, sidebar, aside, .ad, .ads, .banner { display: none !important; }
-        """ : ""
-
-        let js = isReaderModeActive ? """
-        (function() {
-            var el = document.getElementById('easybrowser-reader-style');
-            if (!el) {
-                el = document.createElement('style');
-                el.id = 'easybrowser-reader-style';
-                el.innerHTML = `\(css)`;
-                document.head.appendChild(el);
-            }
-        })();
-        """ : """
-        (function() {
-            var el = document.getElementById('easybrowser-reader-style');
-            if (el) { el.remove(); }
-        })();
-        """
-        webView.evaluateJavaScript(js, completionHandler: nil)
-    }
-
     // MARK: - WKWebView Factory
 
     private func createWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.websiteDataStore = websiteDataStore
+        config.preferences.isElementFullscreenEnabled = true
+        config.allowsAirPlayForMediaPlayback = true
+        pageSignals.install(into: config.userContentController)
         // Включает встроенный Web Inspector (F12, «Проверить элемент» в контекстном меню).
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         config.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
@@ -553,7 +725,6 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     private func configureContentMode(for webView: WKWebView) {
         webView.configuration.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
         webView.customUserAgent = mobileBrowsing ? Self.mobileUserAgent : nil
-        webView.pageZoom = 1
     }
 
     private static let mobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
@@ -604,6 +775,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 guard let self = self, let index = self.tabs.firstIndex(where: { $0.id == tabID }) else { return }
                 if let title = webView.title, !title.isEmpty {
                     self.tabs[index].title = title
+                    if let url = webView.url { self.history?.updateTitle(url: url, title: title) }
                     self.saveSession()
                 }
             }
@@ -633,12 +805,43 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             }
         }
 
-        webViewObservers[tabID] = [titleObs, urlObs, loadingObs, progressObs]
+        let cameraObs = webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor [weak self] in self?.updateCaptureState(tabID: tabID, webView: webView) }
+        }
+        let microphoneObs = webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor [weak self] in self?.updateCaptureState(tabID: tabID, webView: webView) }
+        }
+
+        webViewObservers[tabID] = [titleObs, urlObs, loadingObs, progressObs, cameraObs, microphoneObs]
+        if WebKitPrivate.canObservePlayingAudio {
+            kvoTokens[tabID] = [KeyValueToken(object: webView, keyPath: "_isPlayingAudio") { [weak self] value in
+                let playing = (value as? NSNumber)?.boolValue ?? false
+                Task { @MainActor [weak self] in
+                    guard let self, let index = self.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+                    if self.tabs[index].isPlayingAudio != playing { self.tabs[index].isPlayingAudio = playing }
+                }
+            }]
+        }
+    }
+
+    private func updateCaptureState(tabID: UUID, webView: WKWebView) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        let capturing = webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none
+        if tabs[index].isCapturingMedia != capturing { tabs[index].isCapturingMedia = capturing }
+    }
+
+    /// Остановить камеру и микрофон вкладки (клик по красной точке).
+    public func stopMediaCapture(id: UUID) {
+        guard let webView = tabs.first(where: { $0.id == id })?.webView else { return }
+        webView.setCameraCaptureState(.none)
+        webView.setMicrophoneCaptureState(.none)
     }
 
     private func removeObservations(for tabID: UUID) {
         webViewObservers[tabID]?.forEach { $0.invalidate() }
         webViewObservers.removeValue(forKey: tabID)
+        kvoTokens[tabID]?.forEach { $0.invalidate() }
+        kvoTokens.removeValue(forKey: tabID)
     }
 
     // MARK: - WKUIDelegate (новые окна и диалоги)
@@ -654,24 +857,52 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     ) -> WKWebView? {
         MainActor.assumeIsolated {
             createPopupTab(configuration: configuration, url: navigationAction.request.url,
-                           openerTabID: tabs.first(where: { $0.webView === webView })?.id)
+                           openerTabID: tabs.first(where: { $0.webView === webView })?.id,
+                           isLoginPopup: windowFeatures.width != nil || windowFeatures.height != nil)
         }
     }
 
     /// Вкладка, открытая со страницы, встаёт сразу справа от неё (после уже открытых
     /// ею вкладок), а не в конец списка.
-    private func insertTab(_ tab: TabModel, after openerID: UUID?) {
-        guard let openerID, let openerIndex = tabs.firstIndex(where: { $0.id == openerID }) else {
-            tabs.append(tab)
-            return
+    private func insertTab(_ tab: TabModel, after openerID: UUID?, openedByPage: Bool = false, isPopup: Bool = false) {
+        tabs.append(tab)
+        if let openerID, tree.contains(tab: openerID) {
+            let anchor = lastOpened(from: openerID) ?? openerID
+            if openedByPage && !isPopup {
+                let openerURL = tabs.first(where: { $0.id == openerID })?.url
+                let title = openerURL.map(HistoryStore.displayHost).flatMap { $0.isEmpty ? nil : $0 } ?? "Группа"
+                tree.insertOpenedTab(tab.id, opener: openerID, anchor: anchor, grouping: Self.groupsOpenedLinks,
+                                     groupTitle: title)
+            } else {
+                tree.insertTab(tab.id, after: anchor)
+            }
+            openedFrom[tab.id] = openerID
+        } else {
+            tree.appendTab(tab.id)
         }
-        var index = openerIndex + 1
-        while index < tabs.count, openedFrom[tabs[index].id] == openerID { index += 1 }
-        tabs.insert(tab, at: index)
-        openedFrom[tab.id] = openerID
+        if isPopup { popupTabIDs.insert(tab.id) }
+        syncTabOrder()
     }
 
-    private func createPopupTab(configuration: WKWebViewConfiguration, url: URL?, openerTabID: UUID?) -> WKWebView {
+    /// Ссылки, открытые в новой вкладке, собираются в группу (Настройки → Вкладки).
+    static var groupsOpenedLinks: Bool {
+        UserDefaults.standard.object(forKey: "groupOpenedLinks") as? Bool ?? true
+    }
+
+    /// Последняя вкладка, открытая со страницы `opener` подряд за ней.
+    private func lastOpened(from opener: UUID) -> UUID? {
+        let order = tree.orderedTabIDs
+        guard var index = order.firstIndex(of: opener) else { return nil }
+        var last: UUID?
+        index += 1
+        while index < order.count, openedFrom[order[index]] == opener {
+            last = order[index]
+            index += 1
+        }
+        return last
+    }
+
+    private func createPopupTab(configuration: WKWebViewConfiguration, url: URL?, openerTabID: UUID?, isLoginPopup: Bool) -> WKWebView {
         let popup = WKWebView(frame: .zero, configuration: configuration)
         popup.isInspectable = ModCatalog.isInstalled("aircraft-devtools-webextensions", in: installedModFiles())
         popup.underPageBackgroundColor = .windowBackgroundColor
@@ -681,9 +912,9 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
         let tabURL = (url?.absoluteString.isEmpty == false ? url : nil) ?? URL(string: "about:blank")
         let tab = TabModel(title: "Новая вкладка", url: tabURL, isLoading: true, webView: popup)
-        insertTab(tab, after: openerTabID)
+        insertTab(tab, after: openerTabID, openedByPage: true, isPopup: isLoginPopup)
         setupObservations(for: tab.id, webView: popup)
-        activeTabID = tab.id
+        selectTab(id: tab.id)
         saveSession()
         return popup
     }
@@ -770,6 +1001,26 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         }
     }
 
+    nonisolated public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        MainActor.assumeIsolated {
+            self.applyZoom(to: webView)
+            if let index = self.tabs.firstIndex(where: { $0.webView === webView }) {
+                let id = self.tabs[index].id
+                // Переход по ссылке из Markdown — дальше обычная страница.
+                if case .markdown = self.tabs[index].content, !MarkdownViewer.consumeRenderNavigation(navigation) {
+                    self.tabs[index].content = .web
+                    MarkdownViewer.stopWatching(webView)
+                }
+                self.editableFocusTabs.remove(id)
+                self.tabs[index].isReaderActive = false
+                self.tabs[index].isReaderable = false
+                self.cancelPermissionRequests(tabID: id)
+                if id == self.activeTabID, self.findBar.isVisible { self.closeFindBar() }
+                if self.tabs[index].isMuted { self.applyTabMediaState(id: id) }
+            }
+        }
+    }
+
     nonisolated public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
             if let index = self.tabs.firstIndex(where: { $0.webView === webView }) {
@@ -780,8 +1031,12 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 }
                 if let url = webView.url {
                     self.tabs[index].url = url
+                    if self.tabs[index].content == .web {
+                        self.history?.recordVisit(url: url, title: webView.title ?? "", typed: self.typedNavigations.remove(tabID) != nil)
+                    }
                 }
                 self.saveSession()
+                if self.tabs[index].content == .web { await self.checkReaderAvailability(tabID: tabID, webView: webView) }
                 await self.updatePageBackground(for: tabID, from: webView)
                 await self.loadFavicon(for: tabID, from: webView)
             }
@@ -828,6 +1083,16 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         tabs[index].favicon = image
     }
 
+    nonisolated public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let description = (error as NSError).description
+        Task { @MainActor in
+            NSLog("Aircraft: provisional navigation failed: %@", description)
+            if let index = self.tabs.firstIndex(where: { $0.webView === webView }) {
+                self.tabs[index].isLoading = false
+            }
+        }
+    }
+
     nonisolated public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
             if let index = self.tabs.firstIndex(where: { $0.webView === webView }) {
@@ -851,7 +1116,21 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
            let url = navigationAction.request.url {
             MainActor.assumeIsolated {
                 let openerID = tabs.first(where: { $0.webView === webView })?.id
-                createNewTab(url: url, selectNewTab: false, afterTabID: openerID)
+                createNewTab(url: url, selectNewTab: false, afterTabID: openerID, openedByPage: true)
+                decisionHandler(.cancel, preferences)
+            }
+            return
+        }
+        // Ссылка на локальный .md или .pdf — во встроенный просмотрщик.
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.targetFrame?.isMainFrame == true, let url = navigationAction.request.url, url.isFileURL,
+           Self.viewerContent(forLocal: url) != nil {
+            MainActor.assumeIsolated {
+                if let index = tabs.firstIndex(where: { $0.webView === webView }) {
+                    tabs[index].url = url
+                    tabs[index].title = url.lastPathComponent
+                    load(url, in: webView, tabID: tabs[index].id)
+                }
                 decisionHandler(.cancel, preferences)
             }
             return
@@ -883,12 +1162,26 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
     ) {
         var policy: WKNavigationResponsePolicy = navigationResponse.canShowMIMEType ? .allow : .download
+        var isAttachment = false
         if let http = navigationResponse.response as? HTTPURLResponse,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
            disposition.lowercased().hasPrefix("attachment") {
             policy = .download
+            isAttachment = true
         }
-        MainActor.assumeIsolated { decisionHandler(policy) }
+        let response = navigationResponse.response
+        let isMainFrame = navigationResponse.isForMainFrame
+        MainActor.assumeIsolated {
+            // PDF и Markdown открываются во встроенных просмотрщиках: файл скачивается
+            // через сессию страницы (работает и за логином), вкладка показывает его.
+            if isMainFrame, !isAttachment, let viewer = Self.remoteViewerKind(for: response),
+               let tabID = tabs.first(where: { $0.webView === webView })?.id {
+                pendingViewerDownloads[tabID] = (viewer, response.url)
+                decisionHandler(.download)
+                return
+            }
+            decisionHandler(policy)
+        }
     }
 
     nonisolated public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
@@ -896,7 +1189,13 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     }
 
     nonisolated public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        MainActor.assumeIsolated { download.delegate = self }
+        MainActor.assumeIsolated {
+            download.delegate = self
+            if let tabID = tabs.first(where: { $0.webView === webView })?.id,
+               let pending = pendingViewerDownloads.removeValue(forKey: tabID) {
+                viewerDownloads[ObjectIdentifier(download)] = (tabID, pending.kind, pending.url)
+            }
+        }
     }
 
     nonisolated public func download(
@@ -906,6 +1205,14 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
     ) {
         MainActor.assumeIsolated {
+            if viewerDownloads[ObjectIdentifier(download)] != nil {
+                let folder = AircraftPaths.ensure(AircraftPaths.viewerCache.appendingPathComponent(UUID().uuidString, isDirectory: true))
+                let name = suggestedFilename.replacingOccurrences(of: "/", with: "-")
+                let destination = folder.appendingPathComponent(name.isEmpty ? "document" : name)
+                downloadDestinations[ObjectIdentifier(download)] = destination
+                completionHandler(destination)
+                return
+            }
             let destination = Self.downloadDestination(for: suggestedFilename)
             if let destination { downloadDestinations[ObjectIdentifier(download)] = destination }
             completionHandler(destination)
@@ -914,6 +1221,11 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
     nonisolated public func downloadDidFinish(_ download: WKDownload) {
         MainActor.assumeIsolated {
+            if let viewer = viewerDownloads.removeValue(forKey: ObjectIdentifier(download)),
+               let file = downloadDestinations.removeValue(forKey: ObjectIdentifier(download)) {
+                showViewer(viewer.kind, file: file, sourceURL: viewer.url, tabID: viewer.tabID)
+                return
+            }
             guard let url = downloadDestinations.removeValue(forKey: ObjectIdentifier(download)) else { return }
             // Значок «Загрузки» в Dock подпрыгивает, как в Safari.
             DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: url.path)
@@ -923,6 +1235,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     nonisolated public func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         MainActor.assumeIsolated {
             downloadDestinations.removeValue(forKey: ObjectIdentifier(download))
+            viewerDownloads.removeValue(forKey: ObjectIdentifier(download))
             NSSound.beep()
         }
     }

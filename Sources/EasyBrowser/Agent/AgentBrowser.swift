@@ -46,28 +46,46 @@ final class AgentBrowser {
     }
 
     /// Окно браузера, которое ближе всего к пользователю (для окна настроек и пипетки).
-    static var frontmostManager: TabManager? {
+    static var frontmostManager: TabManager? { frontmostManager(includingIncognito: true) }
+
+    static func frontmostManager(includingIncognito: Bool) -> TabManager? {
         managers.removeAll { $0.value == nil }
         let order = NSApp.orderedWindows
         func index(_ manager: TabManager) -> Int {
-            let window = manager.tabs.lazy.compactMap { $0.webView?.window }.first
-            return window.flatMap { order.firstIndex(of: $0) } ?? Int.max
+            hostWindow(of: manager).flatMap { order.firstIndex(of: $0) } ?? Int.max
         }
-        return managers.compactMap(\.value).min { index($0) < index($1) }
+        return managers.compactMap(\.value)
+            .filter { includingIncognito || !$0.isIncognito }
+            .min { index($0) < index($1) }
     }
+
+    /// TabManager окна.
+    static func manager(for window: NSWindow) -> TabManager? {
+        managers.removeAll { $0.value == nil }
+        return managers.compactMap(\.value).first { hostWindow(of: $0) === window }
+    }
+
+    /// Окна инкогнито видны агентам, только если это разрешено в настройках.
+    static var agentsSeeIncognito: Bool { UserDefaults.standard.bool(forKey: "agentsSeeIncognito") }
 
     private var liveManagers: [TabManager] {
         Self.managers.removeAll { $0.value == nil }
         let order = NSApp.orderedWindows
-        return Self.managers.compactMap(\.value).sorted { lhs, rhs in
-            let left = window(of: lhs).flatMap { order.firstIndex(of: $0) } ?? Int.max
-            let right = window(of: rhs).flatMap { order.firstIndex(of: $0) } ?? Int.max
-            return left < right
-        }
+        return Self.managers.compactMap(\.value)
+            .filter { Self.agentsSeeIncognito || !$0.isIncognito }
+            .sorted { lhs, rhs in
+                let left = window(of: lhs).flatMap { order.firstIndex(of: $0) } ?? Int.max
+                let right = window(of: rhs).flatMap { order.firstIndex(of: $0) } ?? Int.max
+                return left < right
+            }
+    }
+
+    private static func hostWindow(of manager: TabManager) -> NSWindow? {
+        manager.hostWindow ?? manager.tabs.lazy.compactMap { $0.webView?.window }.first
     }
 
     private func window(of manager: TabManager) -> NSWindow? {
-        manager.tabs.lazy.compactMap { $0.webView?.window }.first
+        Self.hostWindow(of: manager)
     }
 
     private var frontManager: TabManager? {
@@ -106,6 +124,7 @@ final class AgentBrowser {
         case "browser_snapshot": return try await snapshot(args)
         case "browser_get_text": return try await getText(args)
         case "browser_screenshot": return try await screenshot(args)
+        case "browser_window_screenshot": return try await windowScreenshot()
         case "browser_click": return try await click(args)
         case "browser_type": return try await type(args)
         case "browser_press_key": return try await pressKey(args)
@@ -129,7 +148,7 @@ final class AgentBrowser {
                 "tabs": manager.tabs.map { tab in
                     [
                         "tabId": tab.id.uuidString,
-                        "title": tab.webView?.title ?? tab.title,
+                        "title": tab.content == .web ? (tab.webView?.title ?? tab.title) : tab.title,
                         "url": (tab.webView?.url ?? tab.url)?.absoluteString ?? "",
                         "active": tab.id == manager.activeTabID,
                         "loading": tab.webView?.isLoading ?? false,
@@ -270,6 +289,44 @@ final class AgentBrowser {
         return Output(content: [
             ["type": "image", "data": jpeg.base64EncodedString(), "mimeType": "image/jpeg"],
             ["type": "text", "text": note]
+        ])
+    }
+
+    /// Снимок всего окна: панели браузера и страницы (WKWebView дорисовываются своими снимками).
+    private func windowScreenshot() async throws -> Output {
+        guard let manager = frontManager, let window = Self.hostWindow(of: manager), let content = window.contentView else {
+            throw AgentError("No browser window is open.")
+        }
+        let bounds = content.bounds
+        guard let rep = content.bitmapImageRepForCachingDisplay(in: bounds) else { throw AgentError("Could not capture the window.") }
+        content.cacheDisplay(in: bounds, to: rep)
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(rep)
+        // Страницы рисуются в другом процессе — дорисовываем их снимки поверх.
+        func webViews(_ view: NSView) -> [WKWebView] {
+            if let web = view as? WKWebView { return web.isHiddenOrHasHiddenAncestor ? [] : [web] }
+            return view.subviews.flatMap(webViews)
+        }
+        var overlays: [(NSImage, NSRect)] = []
+        for web in webViews(content) {
+            if let snapshot = try? await web.takeSnapshot(configuration: nil) {
+                overlays.append((snapshot, web.convert(web.bounds, to: content)))
+            }
+        }
+        let composed = NSImage(size: bounds.size, flipped: false) { rect in
+            image.draw(in: rect)
+            for (snapshot, frame) in overlays {
+                let flippedY = content.isFlipped ? bounds.height - frame.maxY : frame.minY
+                snapshot.draw(in: NSRect(x: frame.minX, y: flippedY, width: frame.width, height: frame.height))
+            }
+            return true
+        }
+        let scale = min(1, 1600 / max(bounds.width, 1))
+        let size = NSSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
+        guard let jpeg = Self.jpegData(composed, size: size) else { throw AgentError("Could not encode the screenshot.") }
+        return Output(content: [
+            ["type": "image", "data": jpeg.base64EncodedString(), "mimeType": "image/jpeg"],
+            ["type": "text", "text": "Browser window \(Int(bounds.width))×\(Int(bounds.height)) pt, including tab panel and toolbars."]
         ])
     }
 
