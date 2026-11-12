@@ -2610,8 +2610,23 @@ public struct SearchModalView: View {
     @State private var selectedSuggestion = -1
     /// Подсказки появляются, только когда текст начали менять (а не на подставленном адресе).
     @State private var edited = false
+    @State private var containerHeight: CGFloat = 0
     @Environment(TabManager.self) private var tabManager: TabManager
     @FocusState private var isFocused: Bool
+
+    private static let fieldHeight: CGFloat = 42
+
+    /// Верх поля: поле по центру окна, где бы ни было подсказок.
+    private var fieldTop: CGFloat {
+        max(16, containerHeight / 2 - Self.fieldHeight / 2)
+    }
+
+    /// Сколько подсказок помещается под полем (строка — до 38 pt).
+    private var suggestionLimit: Int {
+        guard containerHeight > 0 else { return 12 }
+        let room = containerHeight - fieldTop - Self.fieldHeight - 24
+        return max(3, Int(room / 38))
+    }
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
     @AppStorage("customURLPrefixesJSON") private var customURLPrefixesJSON: String = "[]"
 
@@ -2711,8 +2726,13 @@ public struct SearchModalView: View {
                 .shadow(color: Color.black.opacity(0.15), radius: 15, y: 5)
                 .frame(maxWidth: 480)
                 .padding(.horizontal, 20)
+                // Поле всегда по центру окна, подсказки растут вниз. Раньше по центру
+                // стояла вся панель, и она прыгала, пока подгружались результаты.
+                .padding(.top, fieldTop)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { containerHeight = $0 }
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 isFocused = true
@@ -2720,7 +2740,9 @@ public struct SearchModalView: View {
         }
     }
 
-    private var visibleSuggestions: [SpotlightSuggestion] { edited ? suggestions.items : [] }
+    private var visibleSuggestions: [SpotlightSuggestion] {
+        edited ? Array(suggestions.items.prefix(suggestionLimit)) : []
+    }
 
     /// Выбранная подсказка: вкладка — переключиться, остальное — открыть
     /// (⌘↩ — в новой вкладке).
