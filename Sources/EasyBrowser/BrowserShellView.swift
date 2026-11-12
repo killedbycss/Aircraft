@@ -2610,8 +2610,17 @@ public struct SearchModalView: View {
     @State private var selectedSuggestion = -1
     /// Подсказки появляются, только когда текст начали менять (а не на подставленном адресе).
     @State private var edited = false
+    @State private var containerHeight: CGFloat = 0
     @Environment(TabManager.self) private var tabManager: TabManager
     @FocusState private var isFocused: Bool
+
+    /// Верх поля зависит только от высоты окна: по центру, но с запасом места под подсказки.
+    private var fieldTop: CGFloat {
+        let fieldHeight: CGFloat = 42
+        let roomForSuggestions: CGFloat = 470
+        let centered = containerHeight / 2 - fieldHeight / 2
+        return max(16, min(centered, containerHeight - fieldHeight - roomForSuggestions))
+    }
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
     @AppStorage("customURLPrefixesJSON") private var customURLPrefixesJSON: String = "[]"
 
@@ -2711,8 +2720,13 @@ public struct SearchModalView: View {
                 .shadow(color: Color.black.opacity(0.15), radius: 15, y: 5)
                 .frame(maxWidth: 480)
                 .padding(.horizontal, 20)
+                // Поле стоит на месте, подсказки растут вниз: высота списка меняется,
+                // пока подгружаются результаты, и центрирование заставляло окно прыгать.
+                .padding(.top, fieldTop)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { containerHeight = $0 }
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 isFocused = true
