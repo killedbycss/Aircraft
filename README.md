@@ -1,4 +1,4 @@
-# Aircraft 0.4 alpha
+# Aircraft 0.3 alpha
 
 Экспериментальный браузер для macOS на SwiftUI и WebKit.
 
@@ -111,6 +111,6 @@ claude mcp add aircraft -- /Applications/Aircraft.app/Contents/MacOS/aircraft-mc
 
 ## Распространение
 
-Исходный код удобно публиковать в GitHub-репозитории, а собранный `Aircraft-0.4-alpha.zip` прикладывать к GitHub Release с тегом `v0.4-alpha`.
+Исходный код удобно публиковать в GitHub-репозитории, а собранный `Aircraft-0.3-alpha.zip` прикладывать к GitHub Release с тегом `v0.3-alpha`.
 
 Локальная сборка подписывается ad-hoc. Для распространения без предупреждений Gatekeeper потребуется сертификат Apple Developer ID, hardened runtime и notarization.
