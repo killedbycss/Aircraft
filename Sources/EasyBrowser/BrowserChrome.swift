@@ -99,6 +99,10 @@ struct PageOverlays: View {
             ForEach(tabManager.permissionRequests.filter { $0.tabID == tab.id }) { request in
                 PermissionBanner(request: request)
             }
+            if let offer = tabManager.appLinkOffers[tab.id] {
+                AppLinkBanner(offer: offer)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
             HStack(alignment: .top) {
                 Spacer()
                 if isActive, tabManager.bookmarkEditorVisible, let url = tab.url {
@@ -120,6 +124,7 @@ struct PageOverlays: View {
             Spacer()
         }
         .animation(.easeOut(duration: 0.18), value: tabManager.findBar.isVisible)
+        .animation(.easeOut(duration: 0.18), value: tabManager.appLinkOffers[tab.id])
         .animation(.easeOut(duration: 0.18), value: tabManager.toast?.id)
         .animation(.easeOut(duration: 0.18), value: tabManager.bookmarkEditorVisible)
     }
@@ -162,7 +167,7 @@ struct FindBarView: View {
         .font(.system(size: 12, weight: .medium))
         .padding(.horizontal, 10)
         .frame(height: 32)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+        .glassOr(RoundedRectangle(cornerRadius: 9), interactive: true) { Rectangle().fill(.regularMaterial).clipShape(RoundedRectangle(cornerRadius: 9)) }
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.1)))
         .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
         .onAppear {
@@ -188,7 +193,7 @@ struct ToastView: View {
             .font(.system(size: 12, weight: .semibold))
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(.regularMaterial, in: Capsule())
+            .glassOr(Capsule(), interactive: true) { Rectangle().fill(.regularMaterial).clipShape(Capsule()) }
             .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
             .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
             .allowsHitTesting(false)

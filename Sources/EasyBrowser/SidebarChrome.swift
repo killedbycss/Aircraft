@@ -122,6 +122,7 @@ struct AddressCard: View {
                 .buttonStyle(.plain)
                 .help("Скопировать ссылку (⌘⇧C)")
             }
+            AppLinkAddressButton(fontSize: 11 * tabScale)
             PageActionButtons(fontSize: 11 * tabScale)
         }
         .padding(.horizontal, 10 * tabScale)

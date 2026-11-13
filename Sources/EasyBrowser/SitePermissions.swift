@@ -134,7 +134,7 @@ struct PermissionBanner: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .glassOr(RoundedRectangle(cornerRadius: 12), interactive: true) { Rectangle().fill(.regularMaterial).clipShape(RoundedRectangle(cornerRadius: 12)) }
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.08)))
         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
         .frame(maxWidth: 620)

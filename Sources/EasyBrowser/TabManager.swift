@@ -66,6 +66,10 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     public var renamingFolderID: UUID?
     /// Вкладки, выделенные ⌘-кликом в панели.
     public var selectedTabIDs: Set<UUID> = []
+    /// «Открыть в приложении» для вкладок (Zoom, Telegram…).
+    var appLinkOffers: [UUID: AppLinkOffer] = [:]
+    /// Сайты, где предложение открыть приложение закрыли (до перезапуска).
+    @ObservationIgnored var dismissedAppLinkHosts: Set<String> = []
     /// Открыт ли поповер «Добавить в закладки» (⌘D).
     public var bookmarkEditorVisible = false
     /// Фокус на странице стоит в поле ввода (для ⌥← / ⌥→).
@@ -245,6 +249,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         popupTabIDs.remove(id)
         editableFocusTabs.remove(id)
         cancelPermissionRequests(tabID: id)
+        appLinkOffers[id] = nil
         let tabToClose = tabs[index]
         tabToClose.webView?.stopLoading()
         tabToClose.webView?.navigationDelegate = nil
@@ -325,7 +330,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
               let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         // Закреплённая вкладка и плитка ⌘W не закрываются никогда: как в Arc, вкладка
         // возвращается к закреплённому адресу, выгружается, а фокус уходит на соседнюю.
-        if tabs[index].isPinned {
+        if isProtectedPin(id) {
+            if !tabs[index].isPinned { syncPinnedFlags() }
             let pinnedURL = tabs[index].pinnedURL ?? tabs[index].url
             if tabs[index].pinnedURL == nil { tabs[index].pinnedURL = pinnedURL }
             if let pinnedURL, tabs[index].webView?.url != pinnedURL {
@@ -343,6 +349,14 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         } else {
             closeTab(id: id)
         }
+    }
+
+    /// Закреплённая вкладка или плитка — в том числе внутри папки закреплённых.
+    /// Смотрим на место в дереве, а не только на флаг: флаг мог не успеть обновиться.
+    func isProtectedPin(_ id: UUID) -> Bool {
+        if tabs.first(where: { $0.id == id })?.isPinned == true { return true }
+        guard let zone = tree.zone(of: id) else { return false }
+        return zone == .pinned || zone == .favorites
     }
 
     /// Starts split mode with a new blank page in the second pane.
@@ -802,6 +816,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 guard let self = self, let index = self.tabs.firstIndex(where: { $0.id == tabID }) else { return }
                 if let url = webView.url {
                     self.tabs[index].url = url
+                    self.refreshAppLinkOffer(tabID: tabID, url: url)
                     self.saveSession()
                 }
             }
@@ -1129,6 +1144,15 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         preferences: WKWebpagePreferences,
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
+        // Адрес приложения (zoommtg://, tg://, mailto:…) — WebKit его не откроет: спрашиваем и отдаём приложению.
+        if let url = navigationAction.request.url, AppLinks.isExternal(url) {
+            MainActor.assumeIsolated {
+                let handled = handleExternalNavigation(url, from: webView,
+                                                       userClicked: navigationAction.navigationType == .linkActivated)
+                decisionHandler(handled ? .cancel : .allow, preferences)
+            }
+            return
+        }
         // <a download>, blob:- и data:-ссылки на файл — скачиваем, а не открываем.
         // ⌘-клик по ссылке — открыть её в фоновой вкладке справа от текущей.
         if navigationAction.navigationType == .linkActivated,
@@ -1297,7 +1321,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         case "toggleReaderMode":
             toggleReaderMode()
         case "closeTab":
-            if let activeTabID = activeTabID { closeTab(id: activeTabID) }
+            // Как ⌘W: закреплённые вкладки скрипты страниц не закрывают.
+            closeActiveTabFromShortcut()
         case "newTab":
             createNewTab()
         case "reloadTab":

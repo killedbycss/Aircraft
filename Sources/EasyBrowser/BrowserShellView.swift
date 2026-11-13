@@ -30,6 +30,7 @@ public struct BrowserShellView: View {
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 200
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
     @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage(AircraftTheme.liquidGlassKey) private var liquidGlass = false
     @State private var windowWidth: CGFloat = 1000
 
     public init() {}
@@ -108,11 +109,14 @@ public struct BrowserShellView: View {
             .onAppear { keepSpotlightOnEmptyTab() }
             .frame(minWidth: 360, minHeight: 520)
             .ignoresSafeArea(.container, edges: .top)
-            .background(Color(NSColor.windowBackgroundColor))
+            .background(glassActive ? Color.clear : Color(NSColor.windowBackgroundColor))
             .background(WindowTabbingDisabler(windowNumber: $windowNumber))
+            .background(GlassWindowConfigurator(enabled: glassActive))
             .fontWeight(.medium)
             .preferredColorScheme(tabManager.isIncognito ? .dark : (browserTheme == "dark" ? .dark : (browserTheme == "light" ? .light : nil)))
     }
+
+    private var glassActive: Bool { liquidGlass && !tabManager.isIncognito }
 
     private func toggleCurrentURLSpotlight(_ notification: Notification) {
         guard isTargetWindow(notification) else { return }
@@ -368,6 +372,7 @@ public struct SettingsView: View {
     @AppStorage("tabGroupsEnabled") private var tabGroupsEnabled: Bool = false
     @AppStorage("tabPosition") private var tabPosition: String = "left"
     @AppStorage("browserTheme") private var browserTheme: String = "system"
+    @AppStorage(AircraftTheme.liquidGlassKey) private var liquidGlass = false
     @AppStorage("tabScale") private var tabScale: Double = 0.9
     @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
     @AppStorage("resourceMonitoring") private var resourceMonitoring: Bool = false
@@ -406,8 +411,10 @@ public struct SettingsView: View {
                     .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(NSColor.windowBackgroundColor))
+            .background(liquidGlass ? Color.clear : Color(NSColor.windowBackgroundColor))
         }
+        .background { if liquidGlass { GlassWindowBackground() } }
+        .background(GlassWindowConfigurator(enabled: liquidGlass))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onExitCommand { onClose() }
         .onReceive(NotificationCenter.default.publisher(for: .selectSettingsPane)) { notification in
@@ -605,6 +612,11 @@ public struct SettingsView: View {
                 .pickerStyle(.segmented)
             }
             Section {
+                LiquidGlassToggle()
+            } header: {
+                Text("Liquid Glass")
+            }
+            Section {
                 ThemePicker()
             } header: {
                 Text("Цвет окна")
@@ -612,6 +624,7 @@ public struct SettingsView: View {
                 Text("Как в Arc: цвет или градиент тонирует панель вкладок и рамку вокруг страницы. В инкогнито не применяется.")
                     .foregroundStyle(.secondary)
             }
+            AppLinksSettingsSection()
             Section("Загрузки") {
                 LabeledContent("Папка для загрузок") {
                     HStack(spacing: 8) {
@@ -1808,7 +1821,7 @@ private struct MobileSidebarView: View {
             }
             ProfileBar()
         }
-        .chromeBackground()
+        .glassPanel()
         .ignoresSafeArea()
     }
 }
@@ -1855,6 +1868,9 @@ private struct MobileBottomBar: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 48)
+        .glassIfEnabled(Capsule(), tint: AircraftTheme.glassTint, interactive: true)
+        .padding(.horizontal, AircraftTheme.liquidGlass ? 8 : 0)
+        .padding(.bottom, AircraftTheme.liquidGlass ? 6 : 0)
     }
 }
 
@@ -2103,7 +2119,7 @@ public struct TopBarView: View {
             }
         }
         .frame(height: 42 * tabScale)
-        .chromeBackground()
+        .glassPanel(cornerRadius: 14, inset: 5)
     }
 }
 
@@ -2279,7 +2295,7 @@ public struct SidebarView: View {
 
             ProfileBar()
         }
-        .chromeBackground()
+        .glassPanel()
     }
 }
 
@@ -2483,7 +2499,7 @@ private struct WindowTabbingDisabler: NSViewRepresentable {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
-        window.backgroundColor = .windowBackgroundColor
+        if !AircraftTheme.liquidGlass { window.backgroundColor = .windowBackgroundColor }
         window.styleMask.insert(.fullSizeContentView)
     }
 }
@@ -2640,9 +2656,13 @@ public struct SearchModalView: View {
                 }
                 footer
             }
-            .background(.regularMaterial)
-            .background(Color(NSColor.windowBackgroundColor).opacity(0.55))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .glassOr(RoundedRectangle(cornerRadius: 20, style: .continuous), tint: AircraftTheme.glassTint) {
+                ZStack {
+                    Rectangle().fill(.regularMaterial)
+                    Color(NSColor.windowBackgroundColor).opacity(0.55)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: AircraftTheme.liquidGlass ? 20 : 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
             .shadow(color: Color.black.opacity(0.28), radius: 30, y: 12)
             .frame(width: panelWidth)

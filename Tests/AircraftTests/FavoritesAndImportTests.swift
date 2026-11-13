@@ -76,3 +76,22 @@ final class FavoritesAndImportTests: XCTestCase {
         XCTAssertEqual(staying.tabs.filter(\.isPinned).count, 1)
     }
 }
+
+extension FavoritesAndImportTests {
+    @MainActor
+    func testCommandWKeepsPinnedTabs() {
+        let manager = TabManager(window: nil, incognito: true)
+        manager.importPinned(PinnedImportResult(
+            favorites: [.tab(title: "Tile", url: URL(string: "https://tile.example.com/")!)],
+            pinned: [.tab(title: "Pin", url: URL(string: "https://pin.example.com/")!),
+                     .folder(title: "F", children: [.tab(title: "Deep", url: URL(string: "https://deep.example.com/")!)])]))
+        let pinnedIDs = manager.tabs.filter(\.isPinned).map(\.id)
+        XCTAssertEqual(pinnedIDs.count, 3)
+        for id in pinnedIDs {
+            manager.selectTab(id: id)
+            manager.closeActiveTabFromShortcut()
+            manager.closeActiveTabFromShortcut()
+        }
+        XCTAssertEqual(Set(manager.tabs.filter(\.isPinned).map(\.id)), Set(pinnedIDs), "⌘W не удаляет закрепы")
+    }
+}
