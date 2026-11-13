@@ -128,6 +128,7 @@ struct FaviconImage: View {
     var image: NSImage?
     let size: CGFloat
     private var cache: FaviconCache { .shared }
+    static let cornerRatio: CGFloat = 0.24
 
     init(url: URL?, image: NSImage? = nil, size: CGFloat) {
         self.url = url
@@ -144,9 +145,11 @@ struct FaviconImage: View {
         let _ = cache.revision
         Group {
             if let resolved = image ?? cache.image(for: url) {
+                // Одинаковое скругление для всех значков: квадратные фавиконы не торчат углами.
                 Image(nsImage: resolved).resizable().interpolation(.high).scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: size * Self.cornerRatio, style: .continuous))
             } else if let letter = FaviconCache.key(for: url)?.first {
-                RoundedRectangle(cornerRadius: size * 0.25)
+                RoundedRectangle(cornerRadius: size * Self.cornerRatio, style: .continuous)
                     .fill(Color(hue: Double(FaviconCache.key(for: url)!.unicodeScalars.reduce(0) { ($0 * 31 + Int($1.value)) % 360 }) / 360,
                                 saturation: 0.45, brightness: 0.8))
                     .overlay(Text(String(letter).uppercased())

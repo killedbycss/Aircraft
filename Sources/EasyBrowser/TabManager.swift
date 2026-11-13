@@ -175,6 +175,12 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     @discardableResult
     public func createNewTab(url: URL? = nil, selectNewTab: Bool = true, afterTabID: UUID? = nil,
                              openedByPage: Bool = false) -> UUID {
+        // Пустая вкладка уже есть — не плодим вторую (⌘T, «+», «Новая вкладка» подряд).
+        if url == nil, selectNewTab, splitTabID == nil,
+           let empty = tabs.first(where: { $0.url == nil && !$0.isPinned }) {
+            if activeTabID != empty.id { selectTab(id: empty.id) }
+            return empty.id
+        }
         let previouslyFocusedID = activeTabID
         let viewer = url.flatMap(Self.viewerContent(forLocal:))
         let webView = url == nil ? nil : createWebView()
@@ -204,6 +210,11 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         }
 
         if let url, let webView { load(url, in: webView, tabID: newTab.id) }
+        // Страницу открыли в новой вкладке, стоя на пустой, — пустая больше не нужна.
+        if selectNewTab, let previous = previouslyFocusedID, previous != newTab.id, splitTabID == nil,
+           let empty = tabs.first(where: { $0.id == previous }), empty.url == nil, !empty.isPinned {
+            closeTab(id: previous, remember: false)
+        }
         saveSession()
         return newTab.id
     }
@@ -218,6 +229,13 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             } else {
                 splitPrimaryTabID = id
             }
+        }
+        // Ушли с пустой вкладки, ничего не открыв, — она больше не нужна (как в Arc).
+        if let previous = activeTabID, previous != id, tabs.count > 1,
+           let empty = tabs.first(where: { $0.id == previous }), empty.url == nil, !empty.isPinned,
+           previous != splitTabID, previous != splitPrimaryTabID {
+            activeTabID = nil
+            closeTab(id: previous, remember: false)
         }
         if let previous = activeTabID, previous != id, let index = tabs.firstIndex(where: { $0.id == previous }) {
             tabs[index].lastActiveAt = Date()

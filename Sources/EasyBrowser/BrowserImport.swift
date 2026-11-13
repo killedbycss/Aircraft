@@ -4,41 +4,103 @@ import AppKit
 /// Импорт закладок и истории из других браузеров.
 enum BrowserImport {
     enum Source: String, CaseIterable, Identifiable {
-        case safari, chrome, arc, brave, edge, vivaldi, chromium
+        case safari, chrome, arc, dia, brave, edge, vivaldi, opera, yandex, comet, helium, thorium, chromium
+        /// Любой Chromium-браузер: папка профиля, выбранная вручную.
+        case customChromium
         var id: String { rawValue }
+
+        static var allCases: [Source] {
+            [.safari, .chrome, .arc, .dia, .brave, .edge, .vivaldi, .opera, .yandex, .comet, .helium, .thorium, .chromium]
+        }
 
         var title: String {
             switch self {
             case .safari: "Safari"
             case .chrome: "Google Chrome"
             case .arc: "Arc"
+            case .dia: "Dia"
             case .brave: "Brave"
             case .edge: "Microsoft Edge"
             case .vivaldi: "Vivaldi"
+            case .opera: "Opera"
+            case .yandex: "Яндекс Браузер"
+            case .comet: "Comet"
+            case .helium: "Helium"
+            case .thorium: "Thorium"
             case .chromium: "Chromium"
+            case .customChromium: BrowserImport.customProfileURL?.deletingLastPathComponent().lastPathComponent ?? "Chromium-браузер"
             }
         }
 
-        /// Папка профиля Chromium-браузера.
-        var chromiumProfile: URL? {
+        /// Папка данных браузера (внутри — профили Default, Profile 1…).
+        private var dataFolder: URL? {
             let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
             let path: String
             switch self {
             case .safari: return nil
-            case .chrome: path = "Google/Chrome/Default"
-            case .arc: path = "Arc/User Data/Default"
-            case .brave: path = "BraveSoftware/Brave-Browser/Default"
-            case .edge: path = "Microsoft Edge/Default"
-            case .vivaldi: path = "Vivaldi/Default"
-            case .chromium: path = "Chromium/Default"
+            case .customChromium: return BrowserImport.customProfileURL
+            case .chrome: path = "Google/Chrome"
+            case .arc: path = "Arc/User Data"
+            case .dia: path = "Dia/User Data"
+            case .brave: path = "BraveSoftware/Brave-Browser"
+            case .edge: path = "Microsoft Edge"
+            case .vivaldi: path = "Vivaldi"
+            case .opera: path = "com.operasoftware.Opera"
+            case .yandex: path = "Yandex/YandexBrowser"
+            case .comet: path = "Comet"
+            case .helium: path = "net.imput.helium"
+            case .thorium: path = "Thorium"
+            case .chromium: path = "Chromium"
             }
             return support.appendingPathComponent(path, isDirectory: true)
         }
 
+        /// Профиль Chromium-браузера: все они устроены одинаково (`Bookmarks`, `History`),
+        /// отличается только папка. Берём профиль, которым пользовались последним.
+        var chromiumProfile: URL? {
+            guard let folder = dataFolder else { return nil }
+            return BrowserImport.activeProfile(in: folder)
+        }
+
         var isInstalled: Bool {
             if self == .safari { return true }
-            return chromiumProfile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            guard let folder = dataFolder else { return false }
+            return FileManager.default.fileExists(atPath: folder.appendingPathComponent("Default").path)
+                || FileManager.default.fileExists(atPath: folder.appendingPathComponent("Bookmarks").path)
+                || FileManager.default.fileExists(atPath: folder.appendingPathComponent("History").path)
         }
+
+        /// Где браузер держит закрепы: Arc — в своём файле, Dia — в «Других закладках»,
+        /// остальные — на панели закладок.
+        var pinnedDescription: String {
+            switch self {
+            case .arc: "Закреплённые вкладки и избранное (плитки)"
+            case .dia: "Закреплённые вкладки Dia с папками"
+            default: "Закрепы — панель закладок как закреплённые вкладки"
+            }
+        }
+    }
+
+    /// Папка профиля для `.customChromium`.
+    nonisolated(unsafe) static var customProfileURL: URL?
+
+    /// Профиль с файлами `Bookmarks`/`History`; при нескольких — с самой свежей историей.
+    static func activeProfile(in folder: URL) -> URL {
+        let fileManager = FileManager.default
+        func hasData(_ url: URL) -> Bool {
+            fileManager.fileExists(atPath: url.appendingPathComponent("Bookmarks").path)
+                || fileManager.fileExists(atPath: url.appendingPathComponent("History").path)
+        }
+        if hasData(folder) { return folder }
+        let names = (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []
+        let candidates = (["Default"] + names.filter { $0.hasPrefix("Profile ") })
+            .map { folder.appendingPathComponent($0, isDirectory: true) }
+            .filter(hasData)
+        func modified(_ url: URL) -> Date {
+            let history = url.appendingPathComponent("History")
+            return (try? history.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        }
+        return candidates.max { modified($0) < modified($1) } ?? folder.appendingPathComponent("Default", isDirectory: true)
     }
 
     struct Result {
@@ -130,7 +192,8 @@ enum BrowserImport {
         guard let data = try? Data(contentsOf: file),
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let roots = json["roots"] as? [String: Any] else {
-            throw ImportError(message: "В \(source.title) не найдено закладок.")
+            throw ImportError(message: "В \(source.title) не найдено закладок. Если браузер установлен, дайте Aircraft полный доступ к диску.",
+                              needsFullDiskAccess: FileManager.default.fileExists(atPath: profile.path))
         }
         var folder = BookmarkItem(title: "Импорт из \(source.title)", url: nil)
         let names = ["bookmark_bar": "Панель закладок", "other": "Другие закладки", "synced": "Мобильные закладки"]
@@ -250,7 +313,8 @@ enum BrowserImport {
             if source == .safari {
                 throw ImportError(message: "Нет доступа к истории Safari. Дайте Aircraft полный доступ к диску.", needsFullDiskAccess: true)
             }
-            throw ImportError(message: "В \(source.title) не найдено истории.")
+            throw ImportError(message: "В \(source.title) не найдено истории. Если браузер открыт или защищён, дайте Aircraft полный доступ к диску.",
+                              needsFullDiskAccess: FileManager.default.fileExists(atPath: original.deletingLastPathComponent().path))
         }
         defer { try? FileManager.default.removeItem(at: copy) }
         guard let db = SQLiteDatabase(readOnly: copy) else { throw ImportError(message: "Не удалось открыть историю \(source.title).") }

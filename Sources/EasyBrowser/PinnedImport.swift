@@ -38,8 +38,18 @@ extension BrowserImport {
             return try parseArcSidebar(data)
         }
         let bookmarks = try readBookmarks(source)
-        guard let bar = bookmarks.children.first else { return PinnedImportResult() }
-        return PinnedImportResult(pinned: bar.children.compactMap(pinnedNode))
+        return pinnedFromBookmarks(bookmarks, source: source)
+    }
+
+    /// Dia хранит закреплённые вкладки в «Других закладках», остальные Chromium-браузеры —
+    /// закрепами обычно считают панель закладок (если она пуста — «Другие закладки»).
+    static func pinnedFromBookmarks(_ bookmarks: BookmarkItem, source: Source) -> PinnedImportResult {
+        let bar = bookmarks.children.first { $0.title == "Панель закладок" }
+        let other = bookmarks.children.first { $0.title == "Другие закладки" }
+        let root: BookmarkItem?
+        if source == .dia { root = other ?? bar } else { root = bar ?? other ?? bookmarks.children.first }
+        guard let root else { return PinnedImportResult() }
+        return PinnedImportResult(pinned: root.children.compactMap(pinnedNode))
     }
 
     private static func pinnedNode(_ item: BookmarkItem) -> PinnedImportNode? {

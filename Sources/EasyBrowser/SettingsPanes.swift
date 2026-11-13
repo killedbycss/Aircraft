@@ -200,9 +200,11 @@ struct ImportSettingsSection: View {
                 ForEach(BrowserImport.Source.allCases.filter(\.isInstalled)) { item in
                     Text(item.title).tag(item)
                 }
+                if BrowserImport.customProfileURL != nil {
+                    Text(BrowserImport.Source.customChromium.title).tag(BrowserImport.Source.customChromium)
+                }
             }
-            Toggle(source == .arc ? "Закреплённые вкладки и избранное (плитки)" : "Закрепы — панель закладок как закреплённые вкладки",
-                   isOn: $includePinned)
+            Toggle(source.pinnedDescription, isOn: $includePinned)
             Toggle("Закладки — в отдельную папку закладок", isOn: $includeBookmarks)
             Toggle("История", isOn: $includeHistory)
             HStack {
@@ -210,6 +212,8 @@ struct ImportSettingsSection: View {
                     .disabled(manager == nil || manager?.isIncognito == true || (!includeBookmarks && !includeHistory && !includePinned))
                 Button("Из HTML-файла…") { importHTML() }
                     .disabled(manager == nil)
+                Button("Другой Chromium-браузер…") { chooseChromiumProfile() }
+                    .help("Папка профиля любого браузера на Chromium (в ней есть файлы Bookmarks и History)")
                 Spacer()
             }
             if let status {
@@ -250,6 +254,18 @@ struct ImportSettingsSection: View {
         if includeBookmarks { parts.append("закладок: \(result.bookmarks)") }
         if includeHistory { parts.append("страниц истории: \(result.pages)") }
         status = "Импортировано — " + parts.joined(separator: ", ") + (errors.isEmpty ? "" : ". " + errors.joined(separator: " "))
+    }
+
+    private func chooseChromiumProfile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = "Выберите папку профиля Chromium-браузера (обычно «Default» в ~/Library/Application Support/…)"
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        BrowserImport.customProfileURL = url
+        source = .customChromium
+        status = BrowserImport.Source.customChromium.isInstalled ? nil : "В этой папке нет файлов Bookmarks и History."
     }
 
     private func importHTML() {

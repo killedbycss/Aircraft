@@ -27,7 +27,7 @@ public struct BrowserShellView: View {
     @AppStorage("resourceLimitMB") private var resourceLimitMB: Double = 512
     @AppStorage("resourceResetScope") private var resourceResetScope: String = "backgroundTabs"
     @AppStorage("resourceResetShortcut") private var resourceResetShortcut: String = "control-option-r"
-    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 200
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = SidebarMetrics.defaultWidth
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
     @AppStorage("tabScale") private var tabScale: Double = 0.9
     @AppStorage(AircraftTheme.liquidGlassKey) private var liquidGlass = false
@@ -243,7 +243,7 @@ public struct BrowserShellView: View {
     /// Место, которое занимает панель вкладок; Spotlight его не закрывает.
     private var spotlightTabInsets: EdgeInsets {
         guard currentState == .workspace, tabGroupsEnabled, windowWidth >= 600 else { return EdgeInsets() }
-        let sidebar = min(max(sidebarWidth, 140), 360)
+        let sidebar = SidebarMetrics.clamp(sidebarWidth)
         let bar = 42 * tabScale
         switch tabPosition {
         case "top": return EdgeInsets(top: bar, leading: 0, bottom: 0, trailing: 0)
@@ -1529,7 +1529,7 @@ public struct WorkspaceView: View {
                                 sidebarWidth = newWidth
                             }
                             SidebarView(side: "right")
-                                .frame(width: min(max(sidebarWidth, 140), 360))
+                                .frame(width: SidebarMetrics.clamp(sidebarWidth))
                         }
                     }
                     .overlay(alignment: .trailing) { hoverRevealLayer(side: "right") }
@@ -1569,7 +1569,7 @@ public struct WorkspaceView: View {
                     HStack(spacing: 0) {
                         if sidebarVisible {
                             SidebarView(side: "left")
-                                .frame(width: min(max(sidebarWidth, 140), 360))
+                                .frame(width: SidebarMetrics.clamp(sidebarWidth))
                             SidebarResizeHandle(width: sidebarWidth, sidebarOnRight: false) { newWidth in
                                 sidebarWidth = newWidth
                             }
@@ -1604,17 +1604,21 @@ public struct WorkspaceView: View {
                 HStack {
                     if tabPosition == "right" { Spacer() }
                     Button { sidebarVisible = true } label: {
-                        Image(systemName: tabPosition == "right" ? "sidebar.right" : "sidebar.left")
-                            .font(.system(size: 11 * tabScale, weight: .medium))
-                            .frame(width: 30 * tabScale, height: 30 * tabScale)
-                            .background(.regularMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Image(systemName: "pin")
+                            .font(.system(size: 11 * tabScale, weight: .semibold))
+                            .frame(width: 28 * tabScale, height: 28 * tabScale)
+                            .glassOr(RoundedRectangle(cornerRadius: 8), interactive: true) {
+                                RoundedRectangle(cornerRadius: 8).fill(.regularMaterial)
+                            }
                     }
                     .buttonStyle(.plain)
-                    .help("Показать панель вкладок")
+                    .help("Закрепить панель вкладок (⌃⌥S)")
                     if tabPosition == "left" { Spacer() }
                 }
-                .padding(8)
+                // Слева — под «светофором», справа — в углу.
+                .padding(.leading, tabPosition == "left" ? 10 : 8)
+                .padding(.trailing, 8)
+                .padding(.top, tabPosition == "left" ? 34 : 8)
             }
         }
         .chromeBackground()
@@ -1659,8 +1663,8 @@ public struct WorkspaceView: View {
         } else if !sidebarVisible {
             ZStack(alignment: side == "right" ? .trailing : .leading) {
                 if hoverRevealed || showSearchModal {
-                    SidebarView(side: side)
-                        .frame(width: min(max(sidebarWidth, 140), 360))
+                    SidebarView(side: side, pinned: false)
+                        .frame(width: SidebarMetrics.clamp(sidebarWidth))
                         .frame(maxHeight: .infinity)
                         .overlay(alignment: side == "right" ? .leading : .trailing) {
                             Divider()
@@ -1694,6 +1698,25 @@ public struct WorkspaceView: View {
             && !hoverRevealed && !showSearchModal
             && (hostWindow.window?.frame.width ?? 0) >= 600
         setWindowButtonsHidden(hide)
+        if let window = hostWindow.window { WindowButtonLayout.apply(windowButtonPlacement, to: window) }
+    }
+
+    /// Куда ставить «светофор»: по центру верхней панели вкладок или шапки боковой панели.
+    private var windowButtonPlacement: WindowButtonLayout.Placement? {
+        guard tabGroupsEnabled, !isFullScreen, !isCompact else { return nil }
+        let glass = AircraftTheme.liquidGlass && !tabManager.isIncognito
+        switch tabPosition {
+        case "top":
+            guard !tabBarHidden || hoverRevealed || showSearchModal else { return nil }
+            let inset: CGFloat = glass ? 5 : 0
+            return .init(barHeight: inset * 2 + 42 * tabScale, leading: inset + 12)
+        case "left":
+            guard sidebarVisible || hoverRevealed || showSearchModal else { return nil }
+            let inset: CGFloat = glass ? 8 : 0
+            return .init(barHeight: inset * 2 + 38 * tabScale, leading: inset + 12)
+        default:
+            return nil
+        }
     }
 
     private func setWindowButtonsHidden(_ hidden: Bool) {
@@ -1720,7 +1743,7 @@ public struct WorkspaceView: View {
         let outside: CGFloat = 4   // небольшой запас за краем окна
         let insideX = mouse.x >= frame.minX - outside && mouse.x <= frame.maxX + outside
         let insideY = mouse.y >= frame.minY - outside && mouse.y <= frame.maxY + outside
-        let panelWidth = CGFloat(min(max(sidebarWidth, 140), 360))
+        let panelWidth = CGFloat(SidebarMetrics.clamp(sidebarWidth))
         let barHeight = CGFloat(42 * tabScale)
 
         let atEdge: Bool
@@ -1917,7 +1940,7 @@ private struct SidebarResizeHandle: View {
                 .onChanged { value in
                     if startingWidth == nil { startingWidth = width }
                     let direction = sidebarOnRight ? -1.0 : 1.0
-                    pendingWidth = min(max((startingWidth ?? width) + value.translation.width * direction, 140), 360)
+                    pendingWidth = SidebarMetrics.clamp((startingWidth ?? width) + value.translation.width * direction)
                 }
                 .onEnded { _ in
                     let committedWidth = pendingWidth ?? width
@@ -2244,6 +2267,8 @@ private struct TabStripItem: View {
 /// история с аккаунтами и загрузки.
 public struct SidebarView: View {
     let side: String
+    /// false — панель не закреплена и выехала при наведении.
+    var pinned: Bool = true
     @Environment(TabManager.self) private var tabManager: TabManager
     @AppStorage("tabScale") private var tabScale: Double = 0.9
 
@@ -2253,8 +2278,10 @@ public struct SidebarView: View {
                 if side == "left" {
                     // Место под кнопки окна («светофор»).
                     Color.clear.frame(width: 70)
-                    ChromeIconButton(symbol: "sidebar.left", help: "Скрыть панель вкладок (⌃⌥S)", fontSize: 11 * tabScale) {
-                        NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
+                    if pinned {
+                        ChromeIconButton(symbol: "sidebar.left", help: "Открепить панель вкладок (⌃⌥S)", fontSize: 11 * tabScale) {
+                            NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
+                        }
                     }
                     Spacer(minLength: 0)
                     NavigationArrows(fontSize: 11 * tabScale)
@@ -2274,6 +2301,27 @@ public struct SidebarView: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 8)
             .frame(height: 38 * tabScale)
+
+            if !pinned {
+                // Незакреплённая панель: «Закрепить» — под «светофором».
+                HStack {
+                    Button {
+                        NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
+                    } label: {
+                        Label("Закрепить панель", systemImage: "pin")
+                            .font(.system(size: 11 * tabScale, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .frame(height: 24 * tabScale)
+                            .background(Color.primary.opacity(0.06), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Закрепить панель вкладок (⌃⌥S)")
+                    Spacer()
+                }
+                .padding(.leading, side == "left" ? 12 : 8)
+                .padding(.bottom, 6)
+            }
 
             AddressCard()
                 .padding(.horizontal, 8)
@@ -2594,6 +2642,13 @@ private struct URLSystemSuggestions: View {
 
 // MARK: - Search Modal View
 
+/// Открыт ли Spotlight: пока открыт, ⌥← / ⌥→ двигают курсор в поле, а не переключают вкладки.
+@MainActor
+enum SpotlightPresence {
+    static var openCount = 0
+    static var isOpen: Bool { openCount > 0 }
+}
+
 /// Spotlight в духе Arc: большое поле по центру окна, до пяти подсказок с названиями
 /// страниц (остальные — прокруткой). Tab переключает URL-систему: она показывается
 /// меткой в поле, а адреса — такими же строками, как подсказки.
@@ -2675,8 +2730,10 @@ public struct SearchModalView: View {
             containerWidth = $0.width
         }
         .onAppear {
+            SpotlightPresence.openCount += 1
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { isFocused = true }
         }
+        .onDisappear { SpotlightPresence.openCount = max(0, SpotlightPresence.openCount - 1) }
     }
 
     private var showsList: Bool {

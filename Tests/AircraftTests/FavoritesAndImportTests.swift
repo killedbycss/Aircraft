@@ -95,3 +95,31 @@ extension FavoritesAndImportTests {
         XCTAssertEqual(Set(manager.tabs.filter(\.isPinned).map(\.id)), Set(pinnedIDs), "⌘W не удаляет закрепы")
     }
 }
+
+extension FavoritesAndImportTests {
+    @MainActor
+    func testNewTabIsNotDuplicated() {
+        let manager = TabManager(window: nil, incognito: true)
+        let first = manager.createNewTab()
+        let second = manager.createNewTab()
+        XCTAssertEqual(first, second, "Вторая пустая вкладка не создаётся")
+        XCTAssertEqual(manager.tabs.filter { $0.url == nil }.count, 1)
+
+        let page = manager.createNewTab(url: URL(string: "https://example.com/")!)
+        XCTAssertFalse(manager.tabs.contains { $0.url == nil }, "Пустую вкладку, с которой ушли, закрываем")
+        XCTAssertEqual(manager.activeTabID, page)
+    }
+
+    func testPinnedRootPerBrowser() {
+        let bar = BookmarkItem(title: "Панель закладок", url: nil, children: [BookmarkItem(title: "Bar", url: URL(string: "https://bar.example.com")!)])
+        let other = BookmarkItem(title: "Другие закладки", url: nil, children: [
+            BookmarkItem(title: "Pin", url: URL(string: "https://pin.example.com")!),
+            BookmarkItem(title: "Work", url: nil, children: [BookmarkItem(title: "Jira", url: URL(string: "https://jira.example.com")!)])
+        ])
+        let root = BookmarkItem(title: "Импорт", url: nil, children: [bar, other])
+        XCTAssertEqual(BrowserImport.pinnedFromBookmarks(root, source: .dia).count, 2, "Dia — «Другие закладки» с папками")
+        XCTAssertEqual(BrowserImport.pinnedFromBookmarks(root, source: .chrome).count, 1, "Chrome — панель закладок")
+        let onlyOther = BookmarkItem(title: "Импорт", url: nil, children: [other])
+        XCTAssertEqual(BrowserImport.pinnedFromBookmarks(onlyOther, source: .brave).count, 2, "Пустая панель — берём «Другие»")
+    }
+}

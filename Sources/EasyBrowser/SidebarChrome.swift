@@ -370,3 +370,11 @@ struct ProfileSwitcher: View {
             .overlay(Circle().strokeBorder(Color.white.opacity(current ? 0.35 : 0), lineWidth: 1))
     }
 }
+
+/// Размеры боковой панели: уже 190 pt не помещаются кнопки окна, стрелки и адрес.
+enum SidebarMetrics {
+    static let minWidth: Double = 190
+    static let maxWidth: Double = 420
+    static let defaultWidth: Double = 240
+    static func clamp(_ width: Double) -> Double { min(max(width, minWidth), maxWidth) }
+}

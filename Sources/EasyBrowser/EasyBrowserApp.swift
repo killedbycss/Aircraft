@@ -200,7 +200,8 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
     /// Курсор стоит в поле ввода (Spotlight, поле на странице) — ⌥← / ⌥→ двигают его по словам.
     private static func isEditingText(in window: NSWindow?) -> Bool {
         guard let window else { return false }
-        if window.firstResponder is NSText { return true }
+        if SpotlightPresence.isOpen { return true }
+        if window.firstResponder is NSText || window.firstResponder is NSTextView { return true }
         guard let manager = AgentBrowser.manager(for: window) else { return false }
         return manager.activePageHasEditableFocus
     }
