@@ -43,7 +43,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     public var closedTabs: [ClosedTab] = []
     public static let closedTabsLimit = 25
     /// Вкладки других профилей этого окна (пока окно показывает текущий).
-    @ObservationIgnored private var otherSets: [String: SavedTabSet] = [:]
+    @ObservationIgnored var otherSets: [String: SavedTabSet] = [:]
     @ObservationIgnored public weak var hostWindow: NSWindow?
     @ObservationIgnored lazy var incognitoStore: WKWebsiteDataStore = .nonPersistent()
     @ObservationIgnored lazy var incognitoSites = SiteSettingsStore(url: nil, seed: ProfileStore.shared.sites(for: profileID).sites)
@@ -183,7 +183,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             isHibernated: url != nil && webView == nil,
             isPinned: false,
             pinnedURL: nil,
-            favicon: nil,
+            favicon: FaviconCache.shared.image(for: url),
             webView: webView
         )
         if let viewer { newTab.content = viewer }
@@ -303,7 +303,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     /// Флаг «закреплена» следует за зоной в дереве; адрес закрепления запоминается при закреплении.
     func syncPinnedFlags() {
         for index in tabs.indices {
-            let pinned = tree.zone(of: tabs[index].id) == .pinned
+            let zone = tree.zone(of: tabs[index].id)
+            let pinned = zone == .pinned || zone == .favorites
             if pinned != tabs[index].isPinned {
                 tabs[index].isPinned = pinned
                 tabs[index].pinnedURL = pinned ? tabs[index].url : nil
@@ -322,11 +323,22 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     public func closeActiveTabFromShortcut() {
         guard let id = activeTabID,
               let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        if tabs[index].isPinned, let pinnedURL = tabs[index].pinnedURL {
-            tabs[index].url = pinnedURL
-            tabs[index].title = pinnedURL.host ?? "Закреплённая вкладка"
-            if tabs[index].webView == nil { restoreTab(id: id) }
-            tabs[index].webView?.load(URLRequest(url: pinnedURL))
+        // Закреплённая вкладка и плитка ⌘W не закрываются никогда: как в Arc, вкладка
+        // возвращается к закреплённому адресу, выгружается, а фокус уходит на соседнюю.
+        if tabs[index].isPinned {
+            let pinnedURL = tabs[index].pinnedURL ?? tabs[index].url
+            if tabs[index].pinnedURL == nil { tabs[index].pinnedURL = pinnedURL }
+            if let pinnedURL, tabs[index].webView?.url != pinnedURL {
+                tabs[index].url = pinnedURL
+                tabs[index].interactionState = nil
+                tabs[index].favicon = FaviconCache.shared.image(for: pinnedURL) ?? tabs[index].favicon
+            }
+            let fallback = tabs
+                .filter { $0.id != id && !$0.isPinned }
+                .max { $0.lastActiveAt < $1.lastActiveAt }?.id
+            hibernateTab(id: id)
+            if let pinnedURL { tabs[index].url = pinnedURL; tabs[index].interactionState = nil }
+            if let fallback { selectTab(id: fallback) }
             saveSession()
         } else {
             closeTab(id: id)
@@ -420,12 +432,12 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             alert.runModal()
             return
         }
-        let event: String
         switch capability {
-        case "historyAccounts": event = "aircraft:toggleHistoryAccounts"
+        case "historyAccounts": LibraryWindow.show(.history, for: self)
+        case "accounts": LibraryWindow.show(.accounts, for: self)
+        case "downloads": LibraryWindow.show(.downloads, for: self)
         default: return
         }
-        activeWebView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('\(event)'))")
     }
 
     public func webView(for tabID: UUID?) -> WKWebView? {
@@ -591,7 +603,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 isHibernated: saved.url != nil,
                 isPinned: saved.isPinned,
                 pinnedURL: saved.pinnedURL,
-                favicon: nil,
+                favicon: FaviconCache.shared.image(for: saved.url ?? saved.pinnedURL),
                 webView: nil
             )
             tab.lastActiveAt = saved.lastActiveAt ?? Date()
@@ -670,7 +682,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     /// Recreates the web views so newly added CSS/JS modifications apply immediately.
     public func reloadCustomModifications() {
         loadedModCapabilities = []
-        modCapabilities = []
+        refreshInstalledModCapabilities()
         for index in tabs.indices where tabs[index].webView != nil {
             let tabID = tabs[index].id
             let targetURL = tabs[index].webView?.url ?? tabs[index].url
@@ -716,6 +728,9 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         // It is deliberately enabled only while the DevTools modification is loaded.
         webView.isInspectable = ModCatalog.isInstalled("aircraft-devtools-webextensions", in: installedModFiles())
         webView.underPageBackgroundColor = .windowBackgroundColor
+        // Свайп двумя пальцами — назад и вперёд, как в Safari и Dia.
+        webView.allowsBackForwardNavigationGestures = true
+        webView.allowsMagnification = true
         configureContentMode(for: webView)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -740,6 +755,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
         var loadedBundledFamilies: Set<String> = []
         for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            if ModCatalog.retiredFamily(for: file.lastPathComponent) != nil { continue }
             if let family = ModCatalog.family(for: file.lastPathComponent) {
                 guard loadedBundledFamilies.insert(family).inserted else { continue }
             }
@@ -753,7 +769,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     }
 
     private func refreshInstalledModCapabilities() {
-        modCapabilities = loadedModCapabilities
+        modCapabilities = loadedModCapabilities.union(ModCatalog.installedCapabilities(in: installedModFiles()))
         if !modCapabilities.contains("splitView") {
             splitPrimaryTabID = nil
             splitTabID = nil
@@ -996,7 +1012,10 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         Task { @MainActor in
             if let index = self.tabs.firstIndex(where: { $0.webView === webView }) {
                 self.tabs[index].isLoading = true
-                self.tabs[index].favicon = nil
+                // Значок меняем, только если ушли на другой сайт, — иначе он мигает при каждом переходе.
+                if FaviconCache.key(for: webView.url) != FaviconCache.key(for: self.tabs[index].url) {
+                    self.tabs[index].favicon = FaviconCache.shared.image(for: webView.url)
+                }
             }
         }
     }
@@ -1081,6 +1100,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
               let image = NSImage(data: data),
               let index = tabs.firstIndex(where: { $0.id == tabID && $0.webView === webView }) else { return }
         tabs[index].favicon = image
+        FaviconCache.shared.store(image, for: pageURL)
     }
 
     nonisolated public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -1214,7 +1234,11 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 return
             }
             let destination = Self.downloadDestination(for: suggestedFilename)
-            if let destination { downloadDestinations[ObjectIdentifier(download)] = destination }
+            if let destination {
+                downloadDestinations[ObjectIdentifier(download)] = destination
+                DownloadStore.shared.started(download, destination: destination, source: response.url ?? download.originalRequest?.url)
+                showToast("Загрузка: \(destination.lastPathComponent)", symbol: "arrow.down.circle")
+            }
             completionHandler(destination)
         }
     }
@@ -1226,6 +1250,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 showViewer(viewer.kind, file: file, sourceURL: viewer.url, tabID: viewer.tabID)
                 return
             }
+            DownloadStore.shared.finished(download, success: true)
             guard let url = downloadDestinations.removeValue(forKey: ObjectIdentifier(download)) else { return }
             // Значок «Загрузки» в Dock подпрыгивает, как в Safari.
             DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: url.path)
@@ -1236,6 +1261,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         MainActor.assumeIsolated {
             downloadDestinations.removeValue(forKey: ObjectIdentifier(download))
             viewerDownloads.removeValue(forKey: ObjectIdentifier(download))
+            DownloadStore.shared.finished(download, success: false)
             NSSound.beep()
         }
     }

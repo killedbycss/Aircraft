@@ -165,7 +165,7 @@ private struct FolderHeader: View {
             } else {
                 Image(systemName: folder.isExpanded ? "folder" : "folder.fill")
                     .font(.system(size: 11 * tabScale))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(folder.folderColor.map { AnyShapeStyle(GroupPalette.color($0)) } ?? AnyShapeStyle(.secondary))
             }
             if isRenaming {
                 TextField("Название", text: $draftTitle)
@@ -185,7 +185,7 @@ private struct FolderHeader: View {
                 Text(folder.title)
                     .font(.system(size: (style == .mobile ? 13 : 12) * tabScale, weight: .semibold))
                     .lineLimit(1)
-                    .foregroundStyle(folder.kind == .group ? GroupPalette.color(folder.colorIndex) : .primary)
+                    .foregroundStyle(titleColor)
             }
             Spacer(minLength: 4)
             if !folder.isExpanded {
@@ -199,7 +199,7 @@ private struct FolderHeader: View {
         .padding(.leading, CGFloat(depth) * 12 + 8)
         .padding(.trailing, 10)
         .frame(height: (style == .mobile ? 36 : 26) * tabScale)
-        .background(targeted ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+        .background(headerFill, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onTapGesture { if !isRenaming { tabManager.toggleFolderExpanded(folder.id) } }
         .draggable(TabDragPayload.encode(folder.id)) {
@@ -213,12 +213,35 @@ private struct FolderHeader: View {
         .contextMenu { menu }
     }
 
+    private var titleColor: Color {
+        if folder.kind == .group { return GroupPalette.color(folder.colorIndex) }
+        return folder.folderColor.map(GroupPalette.color) ?? .primary
+    }
+
+    private var headerFill: Color {
+        if targeted { return Color.accentColor.opacity(0.18) }
+        if folder.kind == .folder, let color = folder.folderColor { return GroupPalette.color(color).opacity(0.12) }
+        return .clear
+    }
+
     @ViewBuilder
     private var menu: some View {
         Button("Переименовать") { tabManager.renamingFolderID = folder.id }
         if folder.kind == .folder {
             Button("Новая папка внутри") { tabManager.createFolder(in: folder.id) }
                 .disabled(!tabManager.tree.canCreateFolder(in: container))
+            Menu("Цвет папки") {
+                Button("Без цвета") { tabManager.setFolderColor(folder.id, colorIndex: nil) }
+                Divider()
+                ForEach(GroupPalette.colors.indices, id: \.self) { index in
+                    Button {
+                        tabManager.setFolderColor(folder.id, colorIndex: index)
+                    } label: {
+                        if folder.folderColor == index { Label(GroupPalette.names[index], systemImage: "checkmark") }
+                        else { Text(GroupPalette.names[index]) }
+                    }
+                }
+            }
         } else {
             Menu("Цвет") {
                 ForEach(GroupPalette.colors.indices, id: \.self) { index in
@@ -359,10 +382,10 @@ struct TabFavicon: View {
                 Image(systemName: "doc.richtext.fill").resizable().scaledToFit().foregroundStyle(.red)
             } else if case .markdown = tab.content {
                 Image(systemName: "doc.text.fill").resizable().scaledToFit().foregroundStyle(.secondary)
-            } else if let favicon = tab.favicon {
-                Image(nsImage: favicon).resizable().interpolation(.high)
+            } else if tab.url != nil {
+                FaviconImage(url: tab.url, image: tab.favicon, size: size)
             } else {
-                RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.22))
+                Image(systemName: "plus.magnifyingglass").resizable().scaledToFit().foregroundStyle(.secondary)
             }
         }
         .frame(width: size, height: size)
@@ -424,6 +447,12 @@ struct TabContextMenu: View {
             Divider()
         }
         Button(tab.isPinned ? "Открепить" : "Закрепить") { tabManager.togglePinTab(id: tab.id) }
+        if tabManager.tree.zone(of: tab.id) != .favorites {
+            Button("Добавить в плитки") { tabManager.addToFavorites(tab.id) }
+                .disabled(tab.url == nil)
+        } else {
+            Button("Убрать из плиток") { tabManager.dropNode(tab.id, toEndOf: .pinned) }
+        }
         Button("Убрать в новую папку") { tabManager.moveToNewFolder([tab.id]) }
         if let url = tab.url {
             Button(tabManager.bookmarks.contains(url) ? "Уже в закладках" : "Добавить в закладки") {
@@ -514,7 +543,7 @@ struct TopBarFolderChip: View {
             }
         }
         .font(.system(size: 11 * tabScale, weight: .semibold))
-        .foregroundStyle(folder.kind == .group ? GroupPalette.color(folder.colorIndex) : .primary)
+        .foregroundStyle(folder.kind == .group ? GroupPalette.color(folder.colorIndex) : (folder.folderColor.map(GroupPalette.color) ?? .primary))
         .padding(.horizontal, 10 * tabScale)
         .frame(maxHeight: .infinity)
         .background(
@@ -566,7 +595,7 @@ enum TopBarItem: Identifiable {
     static func items(for manager: TabManager) -> [TopBarItem] {
         var result: [TopBarItem] = []
         let byID = Dictionary(uniqueKeysWithValues: manager.tabs.map { ($0.id, $0) })
-        for node in manager.tree.pinned + manager.tree.regular {
+        for node in manager.tree.favorites + manager.tree.pinned + manager.tree.regular {
             switch node {
             case .tab(let id):
                 if let tab = byID[id] { result.append(.tab(tab, groupColor: nil)) }

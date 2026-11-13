@@ -2,18 +2,43 @@ import AppKit
 import SwiftUI
 import WebKit
 
-/// «Добавить в Dock»: сайт становится отдельным приложением в `~/Applications/Aircraft Apps`.
+/// «Добавить в Dock»: сайт становится отдельным приложением в папке «Программы»
+/// (`/Applications`, а если туда нельзя писать — `~/Applications`), рядом с остальными приложениями.
 /// Внутри — бинарник `aircraft-webapp` из Aircraft.app, свой bundle ID (значит, свои cookie),
 /// иконка сайта и ad-hoc подпись.
 @MainActor
 enum WebAppMaker {
     static var appsFolder: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Aircraft Apps", isDirectory: true)
+        let system = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        if FileManager.default.isWritableFile(atPath: system.path) { return system }
+        return userAppsFolder
     }
 
+    static var userAppsFolder: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+    }
+
+    /// Папка прежних версий — приложения из неё тоже показываем.
+    static var legacyAppsFolder: URL {
+        userAppsFolder.appendingPathComponent("Aircraft Apps", isDirectory: true)
+    }
+
+    /// Приложения, собранные Aircraft: узнаём по ключу `AircraftWebAppURL` в Info.plist.
     static var installedApps: [URL] {
-        let items = (try? FileManager.default.contentsOfDirectory(at: appsFolder, includingPropertiesForKeys: nil)) ?? []
-        return items.filter { $0.pathExtension == "app" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let folders = [URL(fileURLWithPath: "/Applications", isDirectory: true), userAppsFolder, legacyAppsFolder]
+        var result: [URL] = []
+        for folder in folders {
+            let items = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            result += items.filter { $0.pathExtension == "app" && isWebApp($0) }
+        }
+        return Array(Set(result)).sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    static func isWebApp(_ app: URL) -> Bool {
+        let plist = app.appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plist),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return false }
+        return info["AircraftWebAppURL"] != nil
     }
 
     static func addActiveTab(of manager: TabManager) {
@@ -57,7 +82,14 @@ enum WebAppMaker {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
         let app = folder.appendingPathComponent("\(name).app", isDirectory: true)
-        if fileManager.fileExists(atPath: app.path) { try fileManager.removeItem(at: app) }
+        if fileManager.fileExists(atPath: app.path) {
+            // Чужое приложение с тем же именем не трогаем.
+            guard isWebApp(app) else {
+                throw NSError(domain: "Aircraft", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                    "В «Программах» уже есть «\(name).app». Выберите другое название."])
+            }
+            try fileManager.removeItem(at: app)
+        }
         let contents = app.appendingPathComponent("Contents", isDirectory: true)
         let macOS = contents.appendingPathComponent("MacOS", isDirectory: true)
         let resources = contents.appendingPathComponent("Resources", isDirectory: true)
@@ -214,12 +246,12 @@ struct WebAppsSettingsSection: View {
                             .help("Переместить в Корзину")
                     }
                 }
-                Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([WebAppMaker.appsFolder]) }
+                Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting(apps) }
             }
         } header: {
             Text("Сайты как приложения")
         } footer: {
-            Text("Каждое приложение — отдельное окно с иконкой в Dock и своими входами на сайты. Ссылки на другие сайты открываются в Aircraft.")
+            Text("Приложения создаются в папке «Программы» (\(WebAppMaker.appsFolder.path)) — их видно в Launchpad и Spotlight. Каждое — отдельное окно с иконкой в Dock и своими входами на сайты. Ссылки на другие сайты открываются в Aircraft.")
                 .foregroundStyle(.secondary)
         }
         .onAppear { apps = WebAppMaker.installedApps }

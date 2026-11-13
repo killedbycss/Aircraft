@@ -1,15 +1,17 @@
 import SwiftUI
 import AppKit
 
-/// Окно «Библиотека»: история (⌘Y), закладки (⌘⇧B), архив и недавно закрытые вкладки.
+/// Окно «Библиотека»: история (⌘Y), аккаунты, загрузки (⌥⌘L), закладки (⌘⇧B), архив и недавно закрытые вкладки.
 @MainActor
 final class LibraryWindow: NSObject, NSWindowDelegate {
     enum Section: String, CaseIterable, Identifiable {
-        case history, bookmarks, archive, closed
+        case history, accounts, downloads, bookmarks, archive, closed
         var id: String { rawValue }
         var title: String {
             switch self {
             case .history: "История"
+            case .accounts: "Аккаунты"
+            case .downloads: "Загрузки"
             case .bookmarks: "Закладки"
             case .archive: "Архив"
             case .closed: "Недавно закрытые"
@@ -18,6 +20,8 @@ final class LibraryWindow: NSObject, NSWindowDelegate {
         var symbol: String {
             switch self {
             case .history: "clock"
+            case .accounts: "person.crop.circle"
+            case .downloads: "arrow.down.circle"
             case .bookmarks: "bookmark"
             case .archive: "archivebox"
             case .closed: "arrow.uturn.backward"
@@ -86,6 +90,8 @@ private struct LibraryView: View {
                 Group {
                     switch state.section {
                     case .history: HistoryList(manager: manager, search: search)
+                    case .accounts: AccountsList(manager: manager, search: search)
+                    case .downloads: DownloadsList(search: search)
                     case .bookmarks: BookmarkList(manager: manager, search: search)
                     case .archive: ArchiveList(manager: manager, search: search)
                     case .closed: ClosedList(manager: manager)

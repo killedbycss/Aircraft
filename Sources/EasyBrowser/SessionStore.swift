@@ -124,8 +124,12 @@ final class SessionStore {
             flush()
             return
         }
-        let othersOpen = live.contains { $0.key != id && $0.value.value != nil }
+        let others = live.filter { $0.key != id }.compactMap(\.value.value).filter { !$0.isIncognito }
+        let othersOpen = !others.isEmpty
         if othersOpen {
+            // Закрепы закрываемого окна не теряем: передаём окну того же профиля (или любому).
+            let target = others.first { $0.profileID == manager.profileID } ?? others.first
+            target?.adoptPinned(from: manager)
             live[id] = nil
             claimed.remove(id)
             windows.removeAll { $0.id == id }

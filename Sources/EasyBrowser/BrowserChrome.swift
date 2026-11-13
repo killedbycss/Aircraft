@@ -24,6 +24,9 @@ enum BrowserCommands {
         case "showBookmarks": LibraryWindow.show(.bookmarks, for: manager)
         case "showHistory": LibraryWindow.show(.history, for: manager)
         case "showArchive": LibraryWindow.show(.archive, for: manager)
+        case "showAccounts": LibraryWindow.show(.accounts, for: manager)
+        case "showDownloads": LibraryWindow.show(.downloads, for: manager)
+        case "stopLoading": if manager.activeTab?.isLoading == true { manager.reloadActiveTab() }
         case "previousTab": manager.selectAdjacentTab(offset: -1)
         case "nextTab": manager.selectAdjacentTab(offset: 1)
         case "openFile": openFilePanel(for: manager)
@@ -197,49 +200,14 @@ struct ToastView: View {
 /// Переключатель профилей внизу панели вкладок (⌃1…⌃9). В инкогнито — пометка окна.
 struct ProfileBar: View {
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
-    private var store: ProfileStore { ProfileStore.shared }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 6) {
-                if tabManager.isIncognito {
-                    Image(systemName: "eyeglasses")
-                    Text("Инкогнито").fontWeight(.semibold)
-                    Spacer()
-                    Text("ничего не сохраняется").foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(store.profiles.enumerated()), id: \.element.id) { index, profile in
-                        ProfileDot(profile: profile, isCurrent: profile.id == tabManager.profileID, number: index + 1) {
-                            tabManager.switchProfile(to: profile.id)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    Menu {
-                        Button("Новый профиль…") { createProfile() }
-                        Button("Окно инкогнито (⌘⇧P)") {
-                            (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true)
-                        }
-                        Divider()
-                        Button("Настроить профили…") { SettingsWindowController.shared.show(pane: .profiles) }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("Профили")
-                }
-            }
-            .font(.system(size: 10 * tabScale, weight: .medium))
-            .padding(.horizontal, 12)
-            .frame(height: 34 * tabScale)
-        }
-        .background(tabManager.isIncognito ? Color.purple.opacity(0.18) : tabManager.profile.color.opacity(0.06))
+        SidebarFooter()
+            .background(tabManager.isIncognito ? Color.purple.opacity(0.14) : Color.clear)
     }
 
-    private func createProfile() {
+    static func createProfile(in tabManager: TabManager) {
+        let store = ProfileStore.shared
         let alert = NSAlert()
         alert.messageText = "Новый профиль"
         alert.informativeText = "У профиля свои cookie, история, закладки и вкладки."
@@ -253,25 +221,5 @@ struct ProfileBar: View {
         let name = field.stringValue.trimmingCharacters(in: .whitespaces)
         let profile = store.create(name: name.isEmpty ? "Профиль \(store.profiles.count + 1)" : name)
         tabManager.switchProfile(to: profile.id)
-    }
-}
-
-private struct ProfileDot: View {
-    let profile: Profile
-    let isCurrent: Bool
-    let number: Int
-    let action: () -> Void
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: profile.symbol)
-                .font(.system(size: 9 * tabScale, weight: .semibold))
-                .foregroundStyle(isCurrent ? Color.white : profile.color)
-                .frame(width: 22 * tabScale, height: 22 * tabScale)
-                .background(Circle().fill(isCurrent ? profile.color : profile.color.opacity(0.15)))
-        }
-        .buttonStyle(.plain)
-        .help(number <= 9 ? "\(profile.name) (⌃\(number))" : profile.name)
     }
 }

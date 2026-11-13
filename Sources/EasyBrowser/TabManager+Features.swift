@@ -150,8 +150,8 @@ extension TabManager {
     /// Возвращает вкладку на прежнее место (в ту же папку, если она ещё есть) с историей переходов.
     func restore(_ record: ClosedTab) {
         var tab = TabModel(id: UUID(), title: record.tab.title, url: record.tab.url, isLoading: false,
-                           isHibernated: true, isPinned: record.zone == .pinned,
-                           pinnedURL: record.zone == .pinned ? (record.tab.pinnedURL ?? record.tab.url) : nil)
+                           isHibernated: true, isPinned: record.zone != .regular,
+                           pinnedURL: record.zone != .regular ? (record.tab.pinnedURL ?? record.tab.url) : nil)
         tab.interactionState = record.tab.interactionState
         if let url = record.tab.url, let viewer = Self.viewerContent(forLocal: url) { tab.content = viewer }
         tabs.append(tab)
@@ -159,7 +159,7 @@ extension TabManager {
         if let folderID = record.folderID, tree.folder(folderID) != nil {
             container = SidebarContainer(zone: record.zone, folderID: folderID)
         } else {
-            container = record.zone == .pinned ? .pinnedRoot : .regularRoot
+            container = SidebarContainer(zone: record.zone, folderID: nil)
         }
         if !tree.insert(.tab(tab.id), into: container, at: record.index) {
             tree.appendTab(tab.id)

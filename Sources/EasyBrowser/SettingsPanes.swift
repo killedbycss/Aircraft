@@ -190,6 +190,7 @@ struct ImportSettingsSection: View {
     @State private var source: BrowserImport.Source = .chrome
     @State private var includeBookmarks = true
     @State private var includeHistory = true
+    @State private var includePinned = true
     @State private var status: String?
     @State private var needsDiskAccess = false
 
@@ -200,11 +201,13 @@ struct ImportSettingsSection: View {
                     Text(item.title).tag(item)
                 }
             }
-            Toggle("Закладки", isOn: $includeBookmarks)
+            Toggle(source == .arc ? "Закреплённые вкладки и избранное (плитки)" : "Закрепы — панель закладок как закреплённые вкладки",
+                   isOn: $includePinned)
+            Toggle("Закладки — в отдельную папку закладок", isOn: $includeBookmarks)
             Toggle("История", isOn: $includeHistory)
             HStack {
                 Button("Импортировать") { runImport() }
-                    .disabled(manager == nil || manager?.isIncognito == true || (!includeBookmarks && !includeHistory))
+                    .disabled(manager == nil || manager?.isIncognito == true || (!includeBookmarks && !includeHistory && !includePinned))
                 Button("Из HTML-файла…") { importHTML() }
                     .disabled(manager == nil)
                 Spacer()
@@ -220,7 +223,7 @@ struct ImportSettingsSection: View {
         } header: {
             Text("Импорт")
         } footer: {
-            Text("Закладки попадут в отдельную папку, история — в профиль «\(manager?.profile.name ?? "")». Для Safari macOS требует полный доступ к диску.")
+            Text("Закрепы появятся в панели вкладок этого окна, закладки — в отдельной папке закладок, история — в профиле «\(manager?.profile.name ?? "")». Входы на сайты (cookie и пароли) браузеры шифруют — их перенести нельзя: войдите заново, пароли подставит Связка ключей. Для Safari macOS требует полный доступ к диску.")
                 .foregroundStyle(.secondary)
         }
     }
@@ -231,9 +234,22 @@ struct ImportSettingsSection: View {
                                        history: includeHistory ? manager.history : nil)
         needsDiskAccess = result.needsFullDiskAccess
         var parts: [String] = []
+        var errors = result.errors
+        if includePinned {
+            do {
+                let pinned = try BrowserImport.readPinned(source)
+                let added = manager.importPinned(pinned)
+                parts.append("закрепов: \(added)" + (added < pinned.count ? " (\(pinned.count - added) уже были)" : ""))
+            } catch let error as BrowserImport.ImportError {
+                errors.append(error.message)
+                if error.needsFullDiskAccess { needsDiskAccess = true }
+            } catch {
+                errors.append(error.localizedDescription)
+            }
+        }
         if includeBookmarks { parts.append("закладок: \(result.bookmarks)") }
         if includeHistory { parts.append("страниц истории: \(result.pages)") }
-        status = "Импортировано — " + parts.joined(separator: ", ") + (result.errors.isEmpty ? "" : ". " + result.errors.joined(separator: " "))
+        status = "Импортировано — " + parts.joined(separator: ", ") + (errors.isEmpty ? "" : ". " + errors.joined(separator: " "))
     }
 
     private func importHTML() {

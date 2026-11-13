@@ -76,6 +76,7 @@ public struct TabModel: Identifiable, Equatable {
         lhs.isHibernated == rhs.isHibernated &&
         lhs.isPinned == rhs.isPinned &&
         lhs.pinnedURL == rhs.pinnedURL &&
+        lhs.favicon === rhs.favicon &&
         lhs.pageBackgroundColor == rhs.pageBackgroundColor &&
         lhs.webView === rhs.webView &&
         lhs.content == rhs.content &&

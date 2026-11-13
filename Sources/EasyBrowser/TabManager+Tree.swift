@@ -26,7 +26,8 @@ extension TabManager {
     /// Перенос в конец зоны (корень закреплённых или обычных).
     @discardableResult
     public func dropNode(_ id: UUID, toEndOf zone: SidebarZone) -> Bool {
-        guard tree.move(id, to: zone == .pinned ? .pinnedRoot : .regularRoot) else {
+        let root: SidebarContainer = zone == .favorites ? .favoritesRoot : (zone == .pinned ? .pinnedRoot : .regularRoot)
+        guard tree.move(id, to: root) else {
             NSSound.beep()
             return false
         }
@@ -84,6 +85,21 @@ extension TabManager {
     /// Убрать папку или группу, оставив вкладки на месте.
     public func dissolveFolder(_ id: UUID) {
         tree.dissolve(id)
+        finishTreeChange()
+    }
+
+    /// Цвет папки; nil — убрать цвет.
+    public func setFolderColor(_ id: UUID, colorIndex: Int?) {
+        tree.updateFolder(id) { $0.folderColor = colorIndex }
+        saveSession()
+    }
+
+    /// Вкладка — в плитки избранных над списком (она становится закреплённой).
+    public func addToFavorites(_ id: UUID) {
+        guard tree.move(id, to: .favoritesRoot) else {
+            NSSound.beep()
+            return
+        }
         finishTreeChange()
     }
 

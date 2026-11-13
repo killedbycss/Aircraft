@@ -286,10 +286,9 @@ public struct HomeView: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
                         Image(systemName: urlSystemActive ? "link" : "magnifyingglass")
-                            .foregroundColor(urlSystemActive ? .white : .gray)
+                            .foregroundStyle(urlSystemActive ? Color.accentColor : .secondary)
                         TextField(urlSystemActive ? selectedPrefixLabel : "Поиск или URL · Tab — url-система", text: $searchInput)
                             .textFieldStyle(.plain)
-                            .foregroundColor(urlSystemActive ? .white : .primary)
                             .focused($searchFocused)
                             .onKeyPress(.tab) {
                                 urlSystemActive.toggle()
@@ -306,7 +305,7 @@ public struct HomeView: View {
                     }
                     .padding(.horizontal, 16)
                     .frame(maxWidth: 450, minHeight: 44)
-                    .background(urlSystemActive ? Color.primary : Color(NSColor.controlBackgroundColor))
+                    .background(Color(NSColor.controlBackgroundColor))
 
                     if urlSystemActive {
                         URLSystemSuggestions(query: searchInput, prefixes: urlPrefixes, selectedIndex: selectedURLSystem) { target in
@@ -388,7 +387,6 @@ public struct SettingsView: View {
     @State private var urlValidationMessage: String?
     @State private var searchURLValidationMessage: String?
     @State private var searchTemplatePreset: String = "duckduckgo"
-    @State private var modBackgroundColor = Color.clear
 
     private var urlPrefixes: [String] {
         URLSystemStore.prefixes(json: customURLPrefixesJSON, legacyPrefix: customURLPrefix)
@@ -419,7 +417,6 @@ public struct SettingsView: View {
         }
         .onAppear {
             loadCustomModifications()
-            modBackgroundColor = Color(aircraftHex: UserDefaults.standard.string(forKey: "aircraftModBackgroundHex") ?? "#00000000")
             editableURLPrefix = ""
             if customURLPrefixesJSON == "[]", !customURLPrefix.isEmpty {
                 customURLPrefixesJSON = URLSystemStore.json(for: urlPrefixes)
@@ -606,10 +603,14 @@ public struct SettingsView: View {
                     Text("Тёмная").tag("dark")
                 }
                 .pickerStyle(.segmented)
-                if tabManager?.modCapabilities.contains("themes") == true {
-                    ColorPicker("Фон сайтов", selection: $modBackgroundColor, supportsOpacity: true)
-                        .onChange(of: modBackgroundColor) { _, value in selectModBackground(value) }
-                }
+            }
+            Section {
+                ThemePicker()
+            } header: {
+                Text("Цвет окна")
+            } footer: {
+                Text("Как в Arc: цвет или градиент тонирует панель вкладок и рамку вокруг страницы. В инкогнито не применяется.")
+                    .foregroundStyle(.secondary)
             }
             Section("Загрузки") {
                 LabeledContent("Папка для загрузок") {
@@ -823,6 +824,9 @@ public struct SettingsView: View {
                 }
             } header: {
                 Text("Встроенные")
+            } footer: {
+                Text("Здесь только то, что заметно нагружает систему. Цвет окна (раздел «Основные») и «История и аккаунты» в меню вкладок теперь встроены и работают без установки.")
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -881,18 +885,21 @@ public struct SettingsView: View {
                 LabeledContent("Скопировать ссылку", value: "⌘⇧C")
                 LabeledContent("Режим чтения", value: "⌘⇧R")
                 LabeledContent("Скрыть элемент на странице", value: "⌥⌘B")
+                LabeledContent("Markdown: правка / сохранить", value: "⌘E  ·  ⌘S")
                 LabeledContent("Web Inspector", value: "F12  ·  ⌥⌘I")
             }
             Section("Навигация") {
                 LabeledContent("Spotlight с адресом вкладки", value: "⌘⇧ (нажать и отпустить)")
                 LabeledContent("Адрес или поиск", value: "⌘L")
-                LabeledContent("Назад / вперёд", value: "⌘[  ·  ⌘]")
-                LabeledContent("Обновить", value: "⌘R")
+                LabeledContent("Назад / вперёд", value: "⌘[  ·  ⌘]  ·  свайп двумя пальцами")
+                LabeledContent("Список страниц назад / вперёд", value: "удерживать стрелку или правый клик")
+                LabeledContent("Обновить / остановить", value: "⌘R  ·  ⌘.")
             }
             Section("Закладки и история") {
                 LabeledContent("Добавить в закладки", value: "⌘D")
                 LabeledContent("Закладки", value: "⌘⇧B")
-                LabeledContent("История", value: "⌘Y")
+                LabeledContent("История и аккаунты", value: "⌘Y")
+                LabeledContent("Загрузки", value: "⌥⌘L")
             }
             Section("Окно и профили") {
                 LabeledContent("Новое окно", value: "⌘⇧N")
@@ -970,13 +977,6 @@ public struct SettingsView: View {
             return
         }
         NSWorkspace.shared.open(url)
-    }
-
-    private func selectModBackground(_ color: Color) {
-        let value = NSColor(color).aircraftHex
-        UserDefaults.standard.set(value, forKey: "aircraftModBackgroundHex")
-        ScriptBridge.setStoredValue(value, for: "themes.background")
-        reloadModsEverywhere()
     }
 
     private func installBundledModification(named name: String) {
@@ -1271,14 +1271,10 @@ struct BundledMod: Identifiable {
     let tint: Color
 
     static let all: [BundledMod] = [
-        .init(id: "aircraft-tab-history-accounts", title: "История и аккаунты",
-              subtitle: "История переходов и сайты со входом · ⌘Y", icon: "clock.arrow.circlepath", tint: .blue),
         .init(id: "aircraft-split-view", title: "Разделение экрана",
-              subtitle: "Две вкладки рядом в одном окне", icon: "rectangle.split.2x1", tint: .teal),
-        .init(id: "aircraft-color-themes", title: "Цветные темы",
-              subtitle: "Свой цвет фона сайтов", icon: "paintpalette.fill", tint: .pink),
+              subtitle: "Две вкладки рядом в одном окне · держит вторую страницу в памяти", icon: "rectangle.split.2x1", tint: .teal),
         .init(id: "aircraft-devtools-webextensions", title: "Web Inspector + WebExtensions",
-              subtitle: "Консоль, журнал fetch и мост chrome.* · ⌘⌥I", icon: "hammer.fill", tint: .gray)
+              subtitle: "Консоль, журнал fetch и мост chrome.* в каждой странице · ⌘⌥I", icon: "hammer.fill", tint: .gray)
     ]
 }
 
@@ -1421,10 +1417,18 @@ private struct WindowPageTopBand: View {
     @AppStorage("tabScale") private var tabScale: Double = 0.9
     @Environment(TabManager.self) private var tabManager: TabManager
 
+    @AppStorage(AircraftTheme.insetPageKey) private var insetPage = true
+
     var body: some View {
-        Color(tabManager.activeTab?.pageBackgroundColor ?? .windowBackgroundColor)
-            .frame(height: 38 * tabScale)
-            .overlay(alignment: .bottom) { Divider().opacity(0.35) }
+        Group {
+            if insetPage {
+                Color.clear
+            } else {
+                Color(tabManager.activeTab?.pageBackgroundColor ?? .windowBackgroundColor)
+                    .overlay(alignment: .bottom) { Divider().opacity(0.35) }
+            }
+        }
+        .frame(height: (insetPage ? 30 : 38) * tabScale)
     }
 }
 
@@ -1444,6 +1448,8 @@ public struct WorkspaceView: View {
     /// (в полноэкранном режиме панель видна), never — не скрывать.
     @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
     @State private var isFullScreen = false
+    /// Панель вкладок в узком окне — своя, чтобы не трогать закреплённую панель обычного режима.
+    @State private var mobileTabsOpen = false
 
     @State private var hoverRevealed: Bool = false
     @State private var hoverHideTask: Task<Void, Never>?
@@ -1457,21 +1463,28 @@ public struct WorkspaceView: View {
     public var body: some View {
         GeometryReader { geometry in
             Group {
-            if tabGroupsEnabled && geometry.size.width < 600 && (tabPosition == "left" || tabPosition == "right") {
-                ZStack {
-                    BrowserContentView(showSearchModal: $showSearchModal)
-                    if resourceMonitoring {
-                        VStack {
-                            Spacer()
-                            ResourceHUDView(memoryBytes: memoryBytes, warnAtLimit: resourceLimitAlert == "limit", limitMB: resourceLimitMB, tabCount: tabManager.tabs.count)
-                        }
+            if tabGroupsEnabled && geometry.size.width < 600 {
+                // Узкое окно: только выезжающая панель вкладок (без горизонтальной полосы),
+                // внизу — строка адреса и кнопка вкладок, как в мобильных браузерах.
+                ZStack(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 28)
+                        BrowserContentView(showSearchModal: $showSearchModal)
+                            .pageCard([.horizontal])
+                        MobileBottomBar(tabsOpen: $mobileTabsOpen)
                     }
-                    if sidebarVisible {
-                        MobileSidebarView(sidebarVisible: $sidebarVisible)
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                    if resourceMonitoring {
+                        ResourceHUDView(memoryBytes: memoryBytes, warnAtLimit: resourceLimitAlert == "limit", limitMB: resourceLimitMB, tabCount: tabManager.tabs.count)
+                            .padding(.bottom, 52)
+                    }
+                    if mobileTabsOpen {
+                        MobileSidebarView(sidebarVisible: $mobileTabsOpen)
+                            .transition(.move(edge: tabPosition == "right" ? .trailing : .leading).combined(with: .opacity))
                             .zIndex(10)
                     }
                 }
+                .animation(.easeOut(duration: 0.2), value: mobileTabsOpen)
+                .onChange(of: tabManager.activeTabID) { _, _ in mobileTabsOpen = false }
             } else if !tabGroupsEnabled {
                 VStack(spacing: 0) {
                     SingleTabHeader(showSearchModal: $showSearchModal)
@@ -1490,6 +1503,7 @@ public struct WorkspaceView: View {
                     HStack(spacing: 0) {
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
+                                .pageCard(sidebarVisible ? [.bottom, .leading] : [.bottom, .horizontal])
                                 .safeAreaInset(edge: .top, spacing: 0) { WindowPageTopBand() }
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -1514,6 +1528,7 @@ public struct WorkspaceView: View {
                         }
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
+                                .pageCard(tabBarHidden ? [] : [.horizontal, .bottom])
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                             if resourceMonitoring {
@@ -1526,6 +1541,7 @@ public struct WorkspaceView: View {
                     VStack(spacing: 0) {
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
+                                .pageCard(.horizontal)
                                 .safeAreaInset(edge: .top, spacing: 0) { WindowPageTopBand() }
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -1547,6 +1563,7 @@ public struct WorkspaceView: View {
                         }
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
+                                .pageCard(sidebarVisible ? [.vertical, .trailing] : .all)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                             if resourceMonitoring {
@@ -1570,7 +1587,7 @@ public struct WorkspaceView: View {
         }
         }
         .overlay(alignment: .top) {
-            if tabGroupsEnabled && !sidebarVisible && (tabPosition == "left" || tabPosition == "right") {
+            if tabGroupsEnabled && !sidebarVisible && (tabPosition == "left" || tabPosition == "right") && !isCompact {
                 HStack {
                     if tabPosition == "right" { Spacer() }
                     Button { sidebarVisible = true } label: {
@@ -1587,6 +1604,7 @@ public struct WorkspaceView: View {
                 .padding(8)
             }
         }
+        .chromeBackground()
         .background(HostWindowReader(ref: hostWindow))
         .onReceive(edgeHoverTimer) { _ in
             let fullScreen = hostWindow.window?.styleMask.contains(.fullScreen) ?? false
@@ -1596,6 +1614,8 @@ public struct WorkspaceView: View {
         }
         .onDisappear { setWindowButtonsHidden(false) }
         .onChange(of: sidebarVisible) { _, _ in
+            // ⌃⌥S в узком окне открывает и закрывает выезжающие вкладки.
+            if isCompact { mobileTabsOpen.toggle() }
             hoverHideTask?.cancel()
             hoverHideTask = nil
             hoverRevealed = false
@@ -1629,7 +1649,6 @@ public struct WorkspaceView: View {
                     SidebarView(side: side)
                         .frame(width: min(max(sidebarWidth, 140), 360))
                         .frame(maxHeight: .infinity)
-                        .background(.regularMaterial)
                         .overlay(alignment: side == "right" ? .leading : .trailing) {
                             Divider()
                         }
@@ -1641,6 +1660,8 @@ public struct WorkspaceView: View {
             .animation(.easeOut(duration: 0.18), value: showSearchModal)
         }
     }
+
+    private var isCompact: Bool { (hostWindow.window?.frame.width ?? 1000) < 600 }
 
     /// Скрыта ли сейчас панель вкладок с учётом настройки «Скрывать верхнюю панель».
     private var tabBarHidden: Bool {
@@ -1756,43 +1777,84 @@ private struct MobileSidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                MobileAddressField(fontSize: 12 * tabScale)
+            // Ряд значков: место под кнопки окна, навигация, настройки, закрыть.
+            HStack(spacing: 4) {
+                Color.clear.frame(width: 70)
+                NavigationArrows(fontSize: 12 * tabScale)
+                ReloadPageButton(fontSize: 12 * tabScale)
                 Spacer()
-                Button {
+                ChromeIconButton(symbol: "gearshape", help: "Настройки (⌘,)", fontSize: 12 * tabScale) {
                     NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 11 * tabScale, weight: .semibold))
-                        .frame(width: 28 * tabScale, height: 28 * tabScale)
                 }
-                .buttonStyle(.plain)
-                .help("Настройки")
-                Button { sidebarVisible = false } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20 * tabScale, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                ChromeIconButton(symbol: "xmark", help: "Скрыть вкладки", fontSize: 12 * tabScale) {
+                    sidebarVisible = false
                 }
-                .buttonStyle(.plain)
-                .help("Скрыть панель вкладок")
             }
-            .padding(.leading, 128)
-            .padding(.trailing, 12)
-            .frame(height: 42 * tabScale)
-            .overlay(alignment: .bottom) { Divider().opacity(0.35) }
+            .padding(.horizontal, 10)
+            .frame(height: 40)
+
+            // Адрес — под рядом значков.
+            MobileAddressField(fontSize: 14 * tabScale)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
+                    FavoritesGrid()
                     TabTreeList(style: .mobile)
-                    ModNavigationItems(horizontal: false)
                     MobileNewTabButton(fontSize: 13 * tabScale)
                 }
                 .padding(.horizontal, 12)
             }
             ProfileBar()
         }
-        .background(.regularMaterial)
+        .chromeBackground()
         .ignoresSafeArea()
+    }
+}
+
+/// Нижняя строка узкого окна: назад/вперёд, адрес с заголовком страницы, вкладки.
+private struct MobileBottomBar: View {
+    @Binding var tabsOpen: Bool
+    @Environment(TabManager.self) private var tabManager: TabManager
+
+    var body: some View {
+        HStack(spacing: 6) {
+            NavigationArrows(fontSize: 13)
+            Button {
+                NotificationCenter.default.post(name: .showCurrentURLSpotlight, object: tabManager.hostWindow ?? NSApp.keyWindow)
+            } label: {
+                HStack(spacing: 6) {
+                    if let tab = tabManager.activeTab, tab.url != nil {
+                        FaviconImage(url: tab.url, image: tab.favicon, size: 14)
+                        Text(tab.url?.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? tab.title)
+                            .lineLimit(1)
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                        Text("Поиск или адрес").foregroundStyle(.secondary)
+                    }
+                }
+                .font(.system(size: 13, weight: .medium))
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(Color.primary.opacity(0.07), in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Адрес или поиск (⌘L)")
+            Button { tabsOpen.toggle() } label: {
+                Text("\(tabManager.tabs.count)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .frame(width: 22, height: 22)
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.primary, lineWidth: 1.6))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Вкладки (⌃⌥S)")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 48)
     }
 }
 
@@ -1859,7 +1921,7 @@ public struct SingleTabHeader: View {
 
     public var body: some View {
         ZStack {
-            VisualEffectView(material: .headerView, blendingMode: .withinWindow)
+            ChromeBackground()
 
             if let tab = tabManager.activeTab {
                 VStack(spacing: 1) {
@@ -2041,8 +2103,7 @@ public struct TopBarView: View {
             }
         }
         .frame(height: 42 * tabScale)
-        .background(VisualEffectView(material: .headerView, blendingMode: .withinWindow))
-        .overlay(alignment: .bottom) { Divider().opacity(0.35) }
+        .chromeBackground()
     }
 }
 
@@ -2059,13 +2120,8 @@ private struct PinnedTabStripItem: View {
                 Group {
                 if copied {
                     Image(systemName: "checkmark").foregroundStyle(.green)
-                } else if let favicon = tab.favicon {
-                    Image(nsImage: favicon).resizable().interpolation(.high)
                 } else {
-                    Image(systemName: "globe")
-                        .resizable()
-                        .scaledToFit()
-                        .foregroundStyle(.secondary)
+                    FaviconImage(url: tab.url ?? tab.pinnedURL, image: tab.favicon, size: 14 * tabScale)
                 }
                 }
                 .frame(width: 14 * tabScale, height: 14 * tabScale)
@@ -2113,15 +2169,8 @@ private struct TabStripItem: View {
                 Image(systemName: "checkmark")
                     .foregroundStyle(.green)
                     .frame(width: 14 * tabScale, height: 14 * tabScale)
-            } else if let favicon = tab.favicon {
-                Image(nsImage: favicon)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 14 * tabScale, height: 14 * tabScale)
             } else {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(isActive ? Color.primary.opacity(0.14) : Color.secondary.opacity(0.16))
-                    .frame(width: 14 * tabScale, height: 14 * tabScale)
+                TabFavicon(tab: tab, copied: false, size: 14 * tabScale)
             }
             VStack(alignment: .leading, spacing: 0) {
                 Text(tab.title.isEmpty ? "Заголовок" : tab.title)
@@ -2174,74 +2223,54 @@ private struct TabStripItem: View {
 
 // MARK: - Sidebar View
 
+/// Боковая панель в духе Arc: кнопки окна и навигации, карточка адреса с заголовком
+/// страницы, плитки избранных, закреплённые и обычные вкладки; внизу — профиль,
+/// история с аккаунтами и загрузки.
 public struct SidebarView: View {
     let side: String
     @Environment(TabManager.self) private var tabManager: TabManager
     @AppStorage("tabScale") private var tabScale: Double = 0.9
-    @State private var copiedTabID: UUID?
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if side == "left" {
-                VStack(spacing: 0) {
-                    HStack(spacing: 10) {
-                        Color.clear.frame(width: 116)
-                        Spacer(minLength: 0)
-                        Button {
-                            NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
-                        } label: { Image(systemName: "gearshape") }
-                        Button {
-                            NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
-                        } label: { Image(systemName: "sidebar.left") }
-                    }
-                    .frame(height: 38 * tabScale)
-                    HStack(spacing: 8) {
-                        CurrentURLLabel(fontSize: 10 * tabScale)
-                        Spacer(minLength: 0)
-                        PageActionButtons(fontSize: 10 * tabScale)
-                        ReloadPageButton(fontSize: 10 * tabScale)
-                    }
-                    .frame(height: 28 * tabScale)
-                }
-                .font(.system(size: 11 * tabScale, weight: .medium))
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-            } else {
-                HStack(spacing: 10) {
-                    Button(action: {
+            HStack(spacing: 2) {
+                if side == "left" {
+                    // Место под кнопки окна («светофор»).
+                    Color.clear.frame(width: 70)
+                    ChromeIconButton(symbol: "sidebar.left", help: "Скрыть панель вкладок (⌃⌥S)", fontSize: 11 * tabScale) {
                         NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
-                    }) { Image(systemName: "sidebar.right") }
-                    CurrentURLLabel(fontSize: 10 * tabScale)
+                    }
                     Spacer(minLength: 0)
-                    PageActionButtons(fontSize: 10 * tabScale)
-                    ReloadPageButton(fontSize: 10 * tabScale)
-                    Button {
+                    NavigationArrows(fontSize: 11 * tabScale)
+                    ReloadPageButton(fontSize: 11 * tabScale)
+                } else {
+                    NavigationArrows(fontSize: 11 * tabScale)
+                    ReloadPageButton(fontSize: 11 * tabScale)
+                    Spacer(minLength: 0)
+                    ChromeIconButton(symbol: "gearshape", help: "Настройки (⌘,)", fontSize: 11 * tabScale) {
                         NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
-                    } label: { Image(systemName: "gearshape") }
-                    .help("Настройки")
+                    }
+                    ChromeIconButton(symbol: "sidebar.right", help: "Скрыть панель вкладок (⌃⌥S)", fontSize: 11 * tabScale) {
+                        NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
+                    }
                 }
-                .frame(height: 38 * tabScale)
-                .font(.system(size: 11 * tabScale, weight: .medium))
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
             }
-            Divider()
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .frame(height: 38 * tabScale)
 
-            // On the left, loaded mod actions belong below the window controls;
-            // the right sidebar keeps them fixed at the bottom.
-            if side == "left" {
-                ModNavigationItems(horizontal: false)
-                    .padding(.horizontal, 8)
-                Divider()
-            }
+            AddressCard()
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
 
-            // Закреплённые, папки, группы и вкладки; перетаскиваются мышью.
+            // Плитки, закреплённые, папки, группы и вкладки; перетаскиваются мышью.
             ScrollView {
                 VStack(spacing: 4) {
+                    FavoritesGrid()
                     TabTreeList(style: .sidebar, side: side)
-                    NewTabButton(title: "Новая страница", fontSize: 12 * tabScale)
+                    NewTabButton(title: "Новая вкладка", fontSize: 12 * tabScale)
                 }
-                .padding(.top, 8)
+                .padding(.top, 2)
                 .padding(.horizontal, 8)
             }
             .contextMenu {
@@ -2249,53 +2278,8 @@ public struct SidebarView: View {
             }
 
             ProfileBar()
-
-            if side != "left" {
-                Divider()
-                ModNavigationItems(horizontal: false)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-            }
-
         }
-        .background(Color(NSColor.windowBackgroundColor))
-    }
-
-    private func copyURL(of tab: TabModel) {
-        guard let value = tab.url?.absoluteString else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
-        copiedTabID = tab.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            if copiedTabID == tab.id { copiedTabID = nil }
-        }
-    }
-}
-
-/// Режим чтения и закладка текущей страницы — рядом с кнопкой обновления.
-private struct PageActionButtons: View {
-    let fontSize: CGFloat
-    @Environment(TabManager.self) private var tabManager: TabManager
-
-    var body: some View {
-        if let tab = tabManager.activeTab, tab.url != nil {
-            HStack(spacing: 8) {
-                if tab.isReaderable || tab.isReaderActive {
-                    Button { tabManager.toggleReaderMode() } label: {
-                        Image(systemName: tab.isReaderActive ? "doc.plaintext.fill" : "doc.plaintext")
-                            .font(.system(size: fontSize, weight: .medium))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Режим чтения (⌘⇧R)")
-                }
-                Button { tabManager.bookmarkEditorVisible.toggle() } label: {
-                    Image(systemName: tabManager.bookmarks.contains(tab.url) ? "bookmark.fill" : "bookmark")
-                        .font(.system(size: fontSize, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .help("Закладка (⌘D)")
-            }
-        }
+        .chromeBackground()
     }
 }
 
@@ -2304,13 +2288,13 @@ private struct ReloadPageButton: View {
     @Environment(TabManager.self) private var tabManager: TabManager
 
     var body: some View {
-        Button { tabManager.reloadActiveTab() } label: {
-            Image(systemName: tabManager.activeTab?.isLoading == true ? "xmark" : "arrow.clockwise")
-                .font(.system(size: fontSize, weight: .medium))
+        ChromeIconButton(symbol: tabManager.activeTab?.isLoading == true ? "xmark" : "arrow.clockwise",
+                         help: tabManager.activeTab?.isLoading == true ? "Остановить (⌘.)" : "Обновить страницу (⌘R)",
+                         fontSize: fontSize) {
+            tabManager.reloadActiveTab()
         }
-        .buttonStyle(.plain)
         .disabled(tabManager.activeTab?.url == nil)
-        .help(tabManager.activeTab?.isLoading == true ? "Остановить" : "Обновить страницу")
+        .opacity(tabManager.activeTab?.url == nil ? 0.35 : 1)
     }
 }
 
@@ -2390,8 +2374,8 @@ private struct MobileAddressField: View {
     @State private var copied = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField("Поиск или URL", text: $value)
                 .textFieldStyle(.plain)
                 .font(.system(size: fontSize))
@@ -2402,6 +2386,9 @@ private struct MobileAddressField: View {
             }
                 .buttonStyle(.plain).disabled(tabManager.activeTab?.url == nil)
         }
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
         .onAppear { value = tabManager.activeTab?.url?.absoluteString ?? "" }
         .onChange(of: tabManager.activeTabID) { _, _ in value = tabManager.activeTab?.url?.absoluteString ?? "" }
     }
@@ -2555,51 +2542,45 @@ public struct CapsuleButton: View {
     }
 }
 
+/// Адреса URL-системы для запроса — в том же виде, что подсказки Spotlight.
+@MainActor
+enum URLSystemTargets {
+    static func suggestions(query: String, prefixes: [String]) -> [SpotlightSuggestion] {
+        prefixes.compactMap { prefix in
+            guard let target = URLRouter.prefixedTarget(query: query, prefix: prefix) else { return nil }
+            let url = URL(string: target)
+            return SpotlightSuggestion(kind: .direct(target), title: url.map(SpotlightSuggestionEngine.shortURL) ?? target,
+                                       subtitle: "URL-система · \(prefix)", symbol: "link", url: url)
+        }
+    }
+}
+
 private struct URLSystemSuggestions: View {
     let query: String
     let prefixes: [String]
     let selectedIndex: Int
     let onSelect: (String) -> Void
 
-    private var targets: [String] {
-        prefixes.compactMap { URLRouter.prefixedTarget(query: query, prefix: $0) }
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(targets.enumerated()), id: \.offset) { index, target in
-                Button(action: { onSelect(target) }) {
-                    HStack {
-                        Image(systemName: index == selectedIndex ? "chevron.right" : "link")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(index == selectedIndex ? .primary : .secondary)
-                        Text(target.replacingOccurrences(of: "https://", with: ""))
-                            .font(.system(size: 10))
-                            .foregroundColor(index == selectedIndex ? .primary : .secondary)
-                            .lineLimit(1)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 42)
-                    .frame(height: 34)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(index == selectedIndex ? Color.primary.opacity(0.08) : Color.clear)
-            }
-            if targets.isEmpty {
-                Text("Добавьте URL-систему в Настройки → Продвинутый функционал")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 42)
-                    .frame(height: 34)
+        let items = URLSystemTargets.suggestions(query: query, prefixes: prefixes)
+        if items.isEmpty {
+            Text("Добавьте URL-систему в Настройки → Поиск")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        } else {
+            SpotlightSuggestionList(items: items, selectedIndex: selectedIndex) { item in
+                if case .direct(let target) = item.kind { onSelect(target) }
             }
         }
-        .background(Color(NSColor.windowBackgroundColor))
     }
 }
 
 // MARK: - Search Modal View
 
+/// Spotlight в духе Arc: большое поле по центру окна, до пяти подсказок с названиями
+/// страниц (остальные — прокруткой). Tab переключает URL-систему: она показывается
+/// меткой в поле, а адреса — такими же строками, как подсказки.
 public struct SearchModalView: View {
     @Binding public var isPresented: Bool
     @Binding public var currentState: ViewState
@@ -2611,27 +2592,25 @@ public struct SearchModalView: View {
     /// Подсказки появляются, только когда текст начали менять (а не на подставленном адресе).
     @State private var edited = false
     @State private var containerHeight: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
     @Environment(TabManager.self) private var tabManager: TabManager
     @FocusState private var isFocused: Bool
-
-    private static let fieldHeight: CGFloat = 42
-
-    /// Верх поля: поле по центру окна, где бы ни было подсказок.
-    private var fieldTop: CGFloat {
-        max(16, containerHeight / 2 - Self.fieldHeight / 2)
-    }
-
-    /// Сколько подсказок помещается под полем (строка — до 38 pt).
-    private var suggestionLimit: Int {
-        guard containerHeight > 0 else { return 12 }
-        let room = containerHeight - fieldTop - Self.fieldHeight - 24
-        return max(3, Int(room / 38))
-    }
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
     @AppStorage("customURLPrefixesJSON") private var customURLPrefixesJSON: String = "[]"
 
+    private static let fieldHeight: CGFloat = 58
+
     private var urlPrefixes: [String] {
         URLSystemStore.prefixes(json: customURLPrefixesJSON, legacyPrefix: customURLPrefix)
+    }
+
+    /// Поле — на трети высоты окна: под ним остаётся место для подсказок.
+    private var fieldTop: CGFloat {
+        max(16, containerHeight * 0.28 - Self.fieldHeight / 2)
+    }
+
+    private var panelWidth: CGFloat {
+        min(720, max(320, containerWidth - 48))
     }
 
     public init(isPresented: Binding<Bool>, currentState: Binding<ViewState>, initialQuery: String = "") {
@@ -2642,106 +2621,142 @@ public struct SearchModalView: View {
 
     public var body: some View {
         ZStack {
-            Color.black.opacity(0.15)
+            Color.black.opacity(0.18)
                 .ignoresSafeArea()
                 .onTapGesture { isPresented = false }
 
             VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Image(systemName: urlSystemActive ? "link" : "magnifyingglass")
-                        .foregroundColor(urlSystemActive ? .white : .gray)
-                    TextField(urlSystemActive ? selectedPrefixLabel : "Поиск или URL · Tab — url-система", text: $query)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(urlSystemActive ? .white : .primary)
-                        .focused($isFocused)
-                        .onKeyPress(.tab) {
-                            urlSystemActive.toggle()
-                            selectedURLSystem = 0
-                            return .handled
+                field
+                if showsList {
+                    Divider().opacity(0.6)
+                    if urlSystemActive {
+                        URLSystemSuggestions(query: query, prefixes: urlPrefixes, selectedIndex: selectedURLSystem) { target in
+                            tabManager.navigateActiveTab(to: target)
+                            close()
                         }
-                        .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-                            let delta = press.key == .downArrow ? 1 : -1
-                            if urlSystemActive {
-                                guard !urlPrefixes.isEmpty else { return .ignored }
-                                selectedURLSystem = (selectedURLSystem + delta + urlPrefixes.count) % urlPrefixes.count
-                                return .handled
-                            }
-                            let count = visibleSuggestions.count
-                            guard count > 0 else { return .ignored }
-                            selectedSuggestion = min(max(selectedSuggestion + delta, -1), count - 1)
-                            return .handled
-                        }
-                        .onChange(of: query) { _, value in
-                            edited = true
-                            suggestions.update(query: value, manager: tabManager)
-                        }
-                        .onChange(of: suggestions.items) { _, items in
-                            // Автодополнение адреса выбрано сразу: Enter откроет сайт.
-                            let hasAutocomplete: Bool = { if case .autocomplete = items.first?.kind { return true }; return false }()
-                            if selectedSuggestion > 0, selectedSuggestion < items.count { return }
-                            selectedSuggestion = hasAutocomplete ? 0 : -1
-                        }
-                        .onSubmit {
-                            if visibleSuggestions.indices.contains(selectedSuggestion) {
-                                open(visibleSuggestions[selectedSuggestion])
-                            } else {
-                                processSearch()
-                            }
-                        }
-                    if !urlSystemActive {
-                        HStack(spacing: 2) {
-                            spotlightNavButton("chevron.left", help: "Назад (⌘[)", enabled: tabManager.canGoBack) {
-                                tabManager.goBackActiveTab()
-                            }
-                            spotlightNavButton("chevron.right", help: "Вперёд (⌘])", enabled: tabManager.canGoForward) {
-                                tabManager.goForwardActiveTab()
-                            }
-                            spotlightNavButton("arrow.clockwise", help: "Перезагрузить (⌘R)", enabled: tabManager.activeTab?.url != nil) {
-                                tabManager.reloadActiveTab()
-                            }
-                        }
-                        Button(action: { isPresented = false }) {
-                            Image(systemName: "xmark.circle.fill").foregroundColor(.gray)
-                        }
-                        .buttonStyle(.plain)
+                    } else {
+                        SpotlightSuggestionList(items: visibleSuggestions, selectedIndex: selectedSuggestion) { open($0) }
                     }
                 }
-                .padding(.horizontal, 14)
-                .frame(height: 42)
-                .background(urlSystemActive ? Color.primary : Color(NSColor.windowBackgroundColor))
-
-                if urlSystemActive {
-                    URLSystemSuggestions(query: query, prefixes: urlPrefixes, selectedIndex: selectedURLSystem) { target in
-                        tabManager.navigateActiveTab(to: target)
-                        isPresented = false
-                        currentState = .workspace
-                    }
-                } else if !visibleSuggestions.isEmpty {
-                    Divider()
-                    SpotlightSuggestionList(items: visibleSuggestions, selectedIndex: selectedSuggestion) { open($0) }
-                }
+                footer
             }
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .shadow(color: Color.black.opacity(0.15), radius: 15, y: 5)
-                .frame(maxWidth: 480)
-                .padding(.horizontal, 20)
-                // Поле всегда по центру окна, подсказки растут вниз. Раньше по центру
-                // стояла вся панель, и она прыгала, пока подгружались результаты.
-                .padding(.top, fieldTop)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(.regularMaterial)
+            .background(Color(NSColor.windowBackgroundColor).opacity(0.55))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.28), radius: 30, y: 12)
+            .frame(width: panelWidth)
+            .padding(.top, fieldTop)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { containerHeight = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: {
+            containerHeight = $0.height
+            containerWidth = $0.width
+        }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                isFocused = true
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { isFocused = true }
         }
     }
 
+    private var showsList: Bool {
+        urlSystemActive || !visibleSuggestions.isEmpty
+    }
+
+    private var field: some View {
+        HStack(spacing: 12) {
+            if urlSystemActive {
+                HStack(spacing: 5) {
+                    Image(systemName: "link")
+                    Text(selectedPrefixLabel).lineLimit(1)
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .padding(.horizontal, 9)
+                .frame(height: 26)
+                .background(Capsule().fill(Color.accentColor))
+                .help("URL-система · Tab — выключить, ↑↓ — выбрать адрес")
+            } else {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            TextField(urlSystemActive ? "Путь или запрос" : "Поиск или адрес", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 20, weight: .regular))
+                .focused($isFocused)
+                .onKeyPress(.tab) {
+                    urlSystemActive.toggle()
+                    selectedURLSystem = 0
+                    return .handled
+                }
+                .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+                    let delta = press.key == .downArrow ? 1 : -1
+                    if urlSystemActive {
+                        let count = URLSystemTargets.suggestions(query: query, prefixes: urlPrefixes).count
+                        guard count > 0 else { return .ignored }
+                        selectedURLSystem = (selectedURLSystem + delta + count) % count
+                        return .handled
+                    }
+                    let count = visibleSuggestions.count
+                    guard count > 0 else { return .ignored }
+                    selectedSuggestion = min(max(selectedSuggestion + delta, -1), count - 1)
+                    return .handled
+                }
+                .onExitCommand { isPresented = false }
+                .onChange(of: query) { _, value in
+                    edited = true
+                    suggestions.update(query: value, manager: tabManager)
+                }
+                .onChange(of: suggestions.items) { _, items in
+                    // Автодополнение адреса выбрано сразу: Enter откроет сайт.
+                    let hasAutocomplete: Bool = { if case .autocomplete = items.first?.kind { return true }; return false }()
+                    if selectedSuggestion > 0, selectedSuggestion < items.count { return }
+                    selectedSuggestion = hasAutocomplete ? 0 : -1
+                }
+                .onSubmit {
+                    if !urlSystemActive, visibleSuggestions.indices.contains(selectedSuggestion) {
+                        open(visibleSuggestions[selectedSuggestion])
+                    } else {
+                        processSearch()
+                    }
+                }
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Очистить")
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(height: Self.fieldHeight)
+    }
+
+    /// Нижняя строка: навигация по текущей странице и подсказка по клавишам.
+    private var footer: some View {
+        HStack(spacing: 4) {
+            spotlightNavButton("arrow.left", help: "Назад (⌘[)", enabled: tabManager.canGoBack) { tabManager.goBackActiveTab() }
+            spotlightNavButton("arrow.right", help: "Вперёд (⌘])", enabled: tabManager.canGoForward) { tabManager.goForwardActiveTab() }
+            spotlightNavButton("arrow.clockwise", help: "Обновить (⌘R)", enabled: tabManager.activeTab?.url != nil) { tabManager.reloadActiveTab() }
+            Spacer()
+            Text(urlSystemActive ? "↩ открыть · ↑↓ адрес · Tab — обычный поиск" : "↩ открыть · ⌘↩ в новой вкладке · Tab — URL-система")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 32)
+        .background(Color.primary.opacity(0.035))
+    }
+
     private var visibleSuggestions: [SpotlightSuggestion] {
-        edited ? Array(suggestions.items.prefix(suggestionLimit)) : []
+        edited ? suggestions.items : []
+    }
+
+    private func close() {
+        isPresented = false
+        currentState = .workspace
     }
 
     /// Выбранная подсказка: вкладка — переключиться, остальное — открыть
@@ -2771,10 +2786,9 @@ public struct SearchModalView: View {
         case .bookmark(let url), .history(let url): go(url.absoluteString)
         case .archive(let id):
             if let entry = tabManager.archive?.entries.first(where: { $0.id == id }) { tabManager.restoreFromArchive(entry) }
-        case .search(let text): go(text)
+        case .search(let text), .direct(let text): go(text)
         }
-        isPresented = false
-        currentState = .workspace
+        close()
     }
 
     private func processSearch() {
@@ -2794,31 +2808,23 @@ public struct SearchModalView: View {
                 tabManager.navigateActiveTab(to: target)
             }
         }
-        isPresented = false
-        currentState = .workspace
+        close()
     }
 
     /// Кнопка навигации в Spotlight: выполняет действие на активной вкладке и закрывает Spotlight.
     private func spotlightNavButton(_ systemName: String, help: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button {
+        ChromeIconButton(symbol: systemName, help: help, fontSize: 11) {
             action()
-            isPresented = false
-            currentState = .workspace
-        } label: {
-            Image(systemName: systemName)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 26, height: 26)
-                .contentShape(Rectangle())
+            close()
         }
-        .buttonStyle(.plain)
-        .foregroundColor(enabled ? .primary : .gray.opacity(0.5))
         .disabled(!enabled)
-        .help(help)
+        .opacity(enabled ? 1 : 0.35)
     }
 
     private var selectedPrefixLabel: String {
-        guard !urlPrefixes.isEmpty else { return "URL-система не настроена" }
-        return urlPrefixes[min(selectedURLSystem, urlPrefixes.count - 1)] + "/…"
+        guard !urlPrefixes.isEmpty else { return "не настроена" }
+        return urlPrefixes[min(selectedURLSystem, urlPrefixes.count - 1)]
+            .replacingOccurrences(of: "https://", with: "") + "/…"
     }
 }
 

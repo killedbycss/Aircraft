@@ -22,6 +22,10 @@ public struct WebContainerView: NSViewRepresentable {
     }
 
     public func updateNSView(_ nsView: NSView, context: Context) {
+        // Скругление страницы-карточки: WKWebView сам по себе маску SwiftUI не всегда соблюдает.
+        nsView.layer?.cornerRadius = AircraftTheme.insetPage ? AircraftTheme.pageCornerRadius : 0
+        nsView.layer?.cornerCurve = .continuous
+        nsView.layer?.masksToBounds = true
         guard let activeWebView = activeWebView else {
             Self.detachAll(from: nsView)
             return

@@ -11,6 +11,8 @@ public struct TabFolder: Codable, Equatable, Identifiable, Sendable {
     public var title: String
     public var kind: FolderKind
     public var colorIndex: Int
+    /// Цвет папки (индекс палитры); nil — без цвета. У групп цвет — `colorIndex`.
+    public var folderColor: Int?
     public var isExpanded: Bool
     public var children: [SidebarNode]
 
@@ -56,6 +58,8 @@ public enum SidebarNode: Codable, Equatable, Identifiable, Sendable {
 }
 
 public enum SidebarZone: String, Codable, Sendable {
+    /// Плитки избранных сайтов над списком (как в Arc). Только вкладки, без папок.
+    case favorites
     case pinned, regular
 }
 
@@ -66,6 +70,7 @@ public struct SidebarContainer: Equatable, Sendable {
 
     public static let regularRoot = SidebarContainer(zone: .regular, folderID: nil)
     public static let pinnedRoot = SidebarContainer(zone: .pinned, folderID: nil)
+    public static let favoritesRoot = SidebarContainer(zone: .favorites, folderID: nil)
 }
 
 /// Порядок вкладок, папки и группы одного окна. Сами вкладки хранятся в `TabManager.tabs`,
@@ -75,18 +80,30 @@ public struct SidebarTree: Codable, Equatable, Sendable {
     public static let maxFolderDepth = 3
     public static let groupColorCount = 8
 
+    public var favorites: [SidebarNode] = []
     public var pinned: [SidebarNode] = []
     public var regular: [SidebarNode] = []
 
-    public init(pinned: [SidebarNode] = [], regular: [SidebarNode] = []) {
+    public init(favorites: [SidebarNode] = [], pinned: [SidebarNode] = [], regular: [SidebarNode] = []) {
+        self.favorites = favorites
         self.pinned = pinned
         self.regular = regular
+    }
+
+    private enum CodingKeys: String, CodingKey { case favorites, pinned, regular }
+
+    /// Сессии до появления плиток не знают о `favorites`.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        favorites = try container.decodeIfPresent([SidebarNode].self, forKey: .favorites) ?? []
+        pinned = try container.decodeIfPresent([SidebarNode].self, forKey: .pinned) ?? []
+        regular = try container.decodeIfPresent([SidebarNode].self, forKey: .regular) ?? []
     }
 
     // MARK: Чтение
 
     /// Все вкладки в порядке отображения (включая свёрнутые папки).
-    public var orderedTabIDs: [UUID] { (pinned + regular).flatMap(\.tabIDs) }
+    public var orderedTabIDs: [UUID] { (favorites + pinned + regular).flatMap(\.tabIDs) }
 
     public func contains(tab id: UUID) -> Bool { location(of: id) != nil }
 
@@ -123,7 +140,9 @@ public struct SidebarTree: Codable, Equatable, Sendable {
             }
             return nil
         }
-        return find(pinned, zone: .pinned, parent: nil, path: []) ?? find(regular, zone: .regular, parent: nil, path: [])
+        return find(favorites, zone: .favorites, parent: nil, path: [])
+            ?? find(pinned, zone: .pinned, parent: nil, path: [])
+            ?? find(regular, zone: .regular, parent: nil, path: [])
     }
 
     /// Глубина контейнера: 0 — корень, 1 — папка в корне и так далее.
@@ -133,13 +152,14 @@ public struct SidebarTree: Codable, Equatable, Sendable {
     }
 
     public func nodes(in container: SidebarContainer) -> [SidebarNode] {
-        guard let folderID = container.folderID else { return container.zone == .pinned ? pinned : regular }
+        guard let folderID = container.folderID else { return rootNodes(container.zone) }
         return folder(folderID)?.children ?? []
     }
 
     /// Можно ли положить узел в контейнер: лимит глубины, в группе — только вкладки,
     /// папку нельзя положить в саму себя.
     public func canInsert(_ node: SidebarNode, into container: SidebarContainer) -> Bool {
+        if container.zone == .favorites, case .folder = node { return false }
         if let folderID = container.folderID {
             guard let target = folder(folderID) else { return false }
             if target.kind == .group, case .folder = node { return false }
@@ -151,6 +171,7 @@ public struct SidebarTree: Codable, Equatable, Sendable {
 
     /// Можно ли создать новую папку внутри контейнера.
     public func canCreateFolder(in container: SidebarContainer) -> Bool {
+        if container.zone == .favorites { return false }
         if let folderID = container.folderID, folder(folderID)?.kind == .group { return false }
         return depth(of: container) < Self.maxFolderDepth
     }
@@ -170,7 +191,7 @@ public struct SidebarTree: Codable, Equatable, Sendable {
             }
             return nil
         }
-        return remove(from: &pinned) ?? remove(from: &regular)
+        return remove(from: &favorites) ?? remove(from: &pinned) ?? remove(from: &regular)
     }
 
     /// Вставка в контейнер; `index == nil` — в конец. Возвращает false, если нарушается лимит.
@@ -221,7 +242,19 @@ public struct SidebarTree: Codable, Equatable, Sendable {
     }
 
     public mutating func appendTab(_ id: UUID, zone: SidebarZone = .regular) {
-        if zone == .pinned { pinned.append(.tab(id)) } else { regular.append(.tab(id)) }
+        switch zone {
+        case .favorites: favorites.append(.tab(id))
+        case .pinned: pinned.append(.tab(id))
+        case .regular: regular.append(.tab(id))
+        }
+    }
+
+    func rootNodes(_ zone: SidebarZone) -> [SidebarNode] {
+        switch zone {
+        case .favorites: favorites
+        case .pinned: pinned
+        case .regular: regular
+        }
     }
 
     /// Вкладка открыта со страницы `opener`. Если родитель лежит в корне обычной зоны,
@@ -234,7 +267,7 @@ public struct SidebarTree: Codable, Equatable, Sendable {
             regular.append(.tab(id))
             return nil
         }
-        if location.container.zone == .pinned {
+        if location.container.zone != .regular {
             // Из закреплённой вкладки — в начало обычной зоны, подряд за уже открытыми.
             if let anchorLocation = self.location(of: anchor), anchor != opener {
                 insert(.tab(id), into: anchorLocation.container, at: anchorLocation.index + 1)
@@ -330,6 +363,7 @@ public struct SidebarTree: Codable, Equatable, Sendable {
 
     /// Убирает вкладки, которых больше нет, и добавляет в конец те, что не попали в дерево.
     public mutating func reconcile(with tabIDs: [UUID], pinnedIDs: Set<UUID> = []) {
+        favorites = favorites.filter { if case .tab = $0 { return true } else { return false } }
         let valid = Set(tabIDs)
         func clean(_ nodes: [SidebarNode], seen: inout Set<UUID>) -> [SidebarNode] {
             nodes.compactMap { node in
@@ -344,6 +378,7 @@ public struct SidebarTree: Codable, Equatable, Sendable {
             }
         }
         var seen = Set<UUID>()
+        favorites = clean(favorites, seen: &seen)
         pinned = clean(pinned, seen: &seen)
         regular = clean(regular, seen: &seen)
         for id in tabIDs where !seen.contains(id) {
@@ -370,7 +405,7 @@ public struct SidebarTree: Codable, Equatable, Sendable {
                 }
             }
         }
-        return visible(pinned) + visible(regular)
+        return visible(favorites) + visible(pinned) + visible(regular)
     }
 
     func nextGroupColor() -> Int {
@@ -388,7 +423,11 @@ public struct SidebarTree: Codable, Equatable, Sendable {
     @discardableResult
     private mutating func modifyNodes(in container: SidebarContainer, _ body: (inout [SidebarNode]) -> Void) -> Bool {
         guard let folderID = container.folderID else {
-            if container.zone == .pinned { body(&pinned) } else { body(&regular) }
+            switch container.zone {
+            case .favorites: body(&favorites)
+            case .pinned: body(&pinned)
+            case .regular: body(&regular)
+            }
             return true
         }
         var found = false

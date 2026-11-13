@@ -125,6 +125,14 @@ public final class ScriptBridge: NSObject, WKScriptMessageHandler {
         guard message.name == Self.messageHandlerName else { return }
 
         if let dict = message.body as? [String: Any], let action = dict["action"] as? String {
+            if action.hasPrefix("markdown.") {
+                if let webView = message.webView {
+                    MainActor.assumeIsolated {
+                        MarkdownViewer.handle(action: action, payload: dict, webView: webView, frame: message.frameInfo)
+                    }
+                }
+                return
+            }
             delegate?.scriptBridge(self, didReceiveAction: action, payload: dict)
         } else if let action = message.body as? String {
             delegate?.scriptBridge(self, didReceiveAction: action, payload: [:])

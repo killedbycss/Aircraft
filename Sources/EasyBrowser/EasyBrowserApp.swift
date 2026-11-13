@@ -1,11 +1,15 @@
 import SwiftUI
 import AppKit
+import QuartzCore
 
 @MainActor
 final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
     private var keyboardMonitor: Any?
     private var modifierMonitor: Any?
     private var commandShiftArmed = false
+    /// Когда зажали ⌘⇧ — чтобы отличить «нажал и отпустил» от ⌘⇧3/4/5 (снимок экрана):
+    /// такие нажатия забирает система, и до приложения они не доходят.
+    private var commandShiftArmedAt: CFTimeInterval = 0
     private var additionalWindows: [NSWindowController] = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -24,12 +28,19 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return event }
             let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
             if modifiers == [.command, .shift] {
+                if !self.commandShiftArmed { self.commandShiftArmedAt = CACurrentMediaTime() }
                 self.commandShiftArmed = true
             } else if modifiers.isEmpty || modifiers == [.command] || modifiers == [.shift] {
                 // Отпущена одна из клавиш ⌘/⇧ — сочетание завершено.
                 if self.commandShiftArmed {
                     self.commandShiftArmed = false
-                    NotificationCenter.default.post(name: .toggleCurrentURLSpotlight, object: NSApp.keyWindow)
+                    let held = CACurrentMediaTime() - self.commandShiftArmedAt
+                    // Любая клавиша в системе (в т. ч. перехваченная снимком экрана) после ⌘⇧ отменяет Spotlight.
+                    let sinceKey = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+                    let mouseSince = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDown)
+                    if sinceKey > held, mouseSince > held, held < 0.8, NSApp.isActive {
+                        NotificationCenter.default.post(name: .toggleCurrentURLSpotlight, object: NSApp.keyWindow)
+                    }
                 }
             } else {
                 self.commandShiftArmed = false
@@ -119,6 +130,7 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
             self?.openPendingURLs()
         }
         TabArchiver.shared.start()
+        ModCatalog.retireOldFiles()
     }
 
     private var pendingURLs: [URL] = []
@@ -167,6 +179,8 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
         case (35, [.command, .shift]): return "newIncognitoWindow" // ⌘⇧P
         case (31, [.command]): return "openFile"                  // ⌘O
         case (15, [.command, .shift]): return "toggleReader"      // ⌘⇧R
+        case (37, [.command, .option]): return "showDownloads"    // ⌥⌘L
+        case (47, [.command]): return "stopLoading"               // ⌘.
         case (123, [.option]), (124, [.option]):
             guard !Self.isEditingText(in: window) else { return nil }
             return code == 123 ? "previousTab" : "nextTab"
@@ -336,6 +350,10 @@ struct EasyBrowserApp: App {
                 Button("Вернуть закрытую вкладку") { browserCommand("reopenClosedTab") }
                     .keyboardShortcut("t", modifiers: [.command, .shift])
                 Button("Архив вкладок") { browserCommand("showArchive") }
+                Divider()
+                Button("Аккаунты") { browserCommand("showAccounts") }
+                Button("Загрузки") { browserCommand("showDownloads") }
+                    .keyboardShortcut("l", modifiers: [.command, .option])
             }
 
             CommandMenu("Закладки") {
@@ -372,6 +390,7 @@ struct EasyBrowserApp: App {
                 Button("Показать/скрыть вкладки") {
                     NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
                 }
+                .keyboardShortcut("s", modifiers: [.control, .option])
                 Divider()
                 Button("Увеличить") { browserCommand("zoomIn") }
                     .keyboardShortcut("=", modifiers: [.command])
@@ -382,7 +401,6 @@ struct EasyBrowserApp: App {
                 Divider()
                 Button("Режим чтения") { browserCommand("toggleReader") }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
-                .keyboardShortcut("s", modifiers: [.control, .option])
             }
 
             CommandMenu("Вкладки") {
@@ -401,6 +419,7 @@ struct EasyBrowserApp: App {
                 Button("Обновить вкладку") {
                     NotificationCenter.default.post(name: .reloadActiveTab, object: NSApp.keyWindow)
                 }
+                .keyboardShortcut("r", modifiers: [.command])
 
                 Button("Скопировать ссылку") { browserCommand("copyURL") }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
@@ -419,10 +438,12 @@ struct EasyBrowserApp: App {
                 Button("Назад") {
                     NotificationCenter.default.post(name: .goBack, object: NSApp.keyWindow)
                 }
+                .keyboardShortcut("[", modifiers: [.command])
 
                 Button("Вперёд") {
                     NotificationCenter.default.post(name: .goForward, object: NSApp.keyWindow)
                 }
+                .keyboardShortcut("]", modifiers: [.command])
 
                 Divider()
 
