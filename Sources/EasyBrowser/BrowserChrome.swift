@@ -81,6 +81,7 @@ struct PageContent: View {
         switch tab.content {
         case .pdf(let file):
             PDFViewerView(file: file, tabID: tab.id, sourceURL: tab.url)
+                .clipShape(RoundedRectangle(cornerRadius: AircraftTheme.insetPage ? AircraftTheme.pageCornerRadius : 0, style: .continuous))
         default:
             WebContainerView(activeWebView: tabManager.webView(for: tab.id))
         }
@@ -169,7 +170,7 @@ struct FindBarView: View {
         .frame(height: 32)
         .glassOr(RoundedRectangle(cornerRadius: 9), interactive: true) { Rectangle().fill(.regularMaterial).clipShape(RoundedRectangle(cornerRadius: 9)) }
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.1)))
-        .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
+        .floatingShadow(RoundedRectangle(cornerRadius: 9), color: .black.opacity(0.15), radius: 10, y: 3)
         .onAppear {
             query = tabManager.findBar.query
             DispatchQueue.main.async { focused = true }
@@ -195,7 +196,7 @@ struct ToastView: View {
             .padding(.vertical, 8)
             .glassOr(Capsule(), interactive: true) { Rectangle().fill(.regularMaterial).clipShape(Capsule()) }
             .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-            .shadow(color: .black.opacity(0.15), radius: 10, y: 3)
+            .floatingShadow(Capsule(), color: .black.opacity(0.15), radius: 10, y: 3)
             .allowsHitTesting(false)
     }
 }

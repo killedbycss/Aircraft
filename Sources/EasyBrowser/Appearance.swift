@@ -174,9 +174,12 @@ private struct PageCardModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if inset || glass {
+            // Скругление страницы делает слой самой WebView (`WebContainerView`), а тень —
+            // отдельная фигура позади. Раньше clipShape и shadow висели прямо на живой странице:
+            // Core Animation перерисовывал её вне экрана на каждом кадре прокрутки и анимации.
             content
-                .clipShape(RoundedRectangle(cornerRadius: AircraftTheme.pageCornerRadius, style: .continuous))
-                .shadow(color: .black.opacity(glass ? 0.22 : 0.14), radius: glass ? 10 : 2.5, y: glass ? 3 : 0.5)
+                .floatingShadow(RoundedRectangle(cornerRadius: AircraftTheme.pageCornerRadius, style: .continuous),
+                                color: .black.opacity(glass ? 0.22 : 0.14), radius: glass ? 10 : 2.5, y: glass ? 3 : 0.5)
                 .padding(edges, glass ? 9 : 7)
         } else {
             content
@@ -331,5 +334,30 @@ struct GlassWindowConfigurator: NSViewRepresentable {
         guard let window else { return }
         window.isOpaque = !enabled
         window.backgroundColor = enabled ? .clear : .windowBackgroundColor
+    }
+}
+
+
+// MARK: - Дешёвые тени
+
+extension View {
+    /// Тень по контуру фигуры, а не по содержимому. Тень от содержимого (`.shadow` на вид
+    /// с размытием или живой страницей) заставляет пересчитывать её на каждом кадре; здесь
+    /// она рисуется отдельным слоем, который не меняется, пока не изменится размер.
+    /// Внутри фигуры тень вырезана — полупрозрачные материалы и стекло остаются прозрачными.
+    func floatingShadow<S: Shape>(_ shape: S, color: Color, radius: CGFloat, x: CGFloat = 0, y: CGFloat = 0) -> some View {
+        background {
+            shape
+                .fill(Color.black)
+                .shadow(color: color, radius: radius, x: x, y: y)
+                .mask {
+                    ZStack {
+                        Rectangle().padding(-(radius * 3 + abs(x) + abs(y)))
+                        shape.fill(Color.black).blendMode(.destinationOut)
+                    }
+                    .compositingGroup()
+                }
+                .allowsHitTesting(false)
+        }
     }
 }

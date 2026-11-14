@@ -253,7 +253,7 @@ struct AppLinkBanner: View {
         .padding(.vertical, 9)
         .glassOr(RoundedRectangle(cornerRadius: 12), interactive: true) { Rectangle().fill(.regularMaterial).clipShape(RoundedRectangle(cornerRadius: 12)) }
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.08)))
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .floatingShadow(RoundedRectangle(cornerRadius: 12), color: .black.opacity(0.15), radius: 12, y: 4)
         .frame(maxWidth: 620)
         .padding(.top, 10)
         .padding(.horizontal, 16)

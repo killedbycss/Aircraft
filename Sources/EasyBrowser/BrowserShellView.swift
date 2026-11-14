@@ -1127,6 +1127,8 @@ private struct PageLoadingBar: View {
                 .opacity(visible ? 1 : 0)
         }
         .frame(height: 2.5)
+        // Полоса загрузки не вылезает за скруглённые углы страницы.
+        .padding(.horizontal, AircraftTheme.insetPage ? AircraftTheme.pageCornerRadius * 0.6 : 0)
         .allowsHitTesting(false)
         .onAppear { update(isLoading: tab.isLoading, progress: tab.loadProgress) }
         .onChange(of: tab.isLoading) { _, loading in update(isLoading: loading, progress: tab.loadProgress) }
@@ -1419,8 +1421,9 @@ private struct BrowserPane: View {
                 .overlay(alignment: .top) { PageOverlays(tab: tab) }
                 .overlay { AgentActivityOverlay(tabID: tabID) }
         } else {
-            // Новая вкладка без адреса — просто пустая страница.
-            Color(NSColor.windowBackgroundColor)
+            // Новая вкладка без адреса — просто пустая страница (скруглённая, если страница карточкой).
+            RoundedRectangle(cornerRadius: AircraftTheme.insetPage ? AircraftTheme.pageCornerRadius : 0, style: .continuous)
+                .fill(Color(NSColor.windowBackgroundColor))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -1624,6 +1627,9 @@ public struct WorkspaceView: View {
         .chromeBackground()
         .background(HostWindowReader(ref: hostWindow))
         .onReceive(edgeHoverTimer) { _ in
+            // В фоне и в свёрнутом окне проверки не нужны — не будим главный поток зря.
+            guard NSApp.isActive, hostWindow.window?.isVisible == true,
+                  hostWindow.window?.isMiniaturized == false else { return }
             let fullScreen = hostWindow.window?.styleMask.contains(.fullScreen) ?? false
             if fullScreen != isFullScreen { isFullScreen = fullScreen }
             checkEdgeHover()
@@ -1654,7 +1660,7 @@ public struct WorkspaceView: View {
             ZStack(alignment: .top) {
                 if hoverRevealed || showSearchModal {
                     TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: !isFullScreen, showsTabBarToggle: true)
-                        .shadow(color: .black.opacity(0.18), radius: 12, y: 2)
+                        .floatingShadow(Rectangle(), color: .black.opacity(AircraftTheme.liquidGlass ? 0 : 0.18), radius: 12, y: 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
@@ -1669,7 +1675,9 @@ public struct WorkspaceView: View {
                         .overlay(alignment: side == "right" ? .leading : .trailing) {
                             Divider()
                         }
-                        .shadow(color: .black.opacity(0.18), radius: 12, x: side == "right" ? -2 : 2)
+                        // Стеклянная панель отбрасывает свою тень; обычной — тень по прямоугольнику.
+                        .floatingShadow(Rectangle(), color: .black.opacity(AircraftTheme.liquidGlass ? 0 : 0.18),
+                                        radius: 12, x: side == "right" ? -2 : 2)
                         .transition(.move(edge: side == "right" ? .trailing : .leading).combined(with: .opacity))
                 }
             }
@@ -2719,7 +2727,8 @@ public struct SearchModalView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: AircraftTheme.liquidGlass ? 20 : 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
-            .shadow(color: Color.black.opacity(0.28), radius: 30, y: 12)
+            .floatingShadow(RoundedRectangle(cornerRadius: AircraftTheme.liquidGlass ? 20 : 16, style: .continuous),
+                            color: Color.black.opacity(0.28), radius: 30, y: 12)
             .frame(width: panelWidth)
             .padding(.top, fieldTop)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

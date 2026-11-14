@@ -438,7 +438,7 @@ struct BookmarkEditor: View {
         .frame(width: 300)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.08)))
-        .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+        .floatingShadow(RoundedRectangle(cornerRadius: 12), color: .black.opacity(0.18), radius: 14, y: 5)
         .onAppear {
             existing = store.bookmark(for: url)
             name = existing?.title ?? title
