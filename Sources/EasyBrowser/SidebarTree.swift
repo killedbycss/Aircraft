@@ -233,9 +233,15 @@ public struct SidebarTree: Codable, Equatable, Sendable {
     }
 
     /// Новая вкладка сразу после `anchor` в том же контейнере (или в конец обычной зоны).
+    /// Рядом с плиткой или закреплённой вкладкой новая вкладка не встаёт: она уходит
+    /// в начало обычных вкладок, иначе ссылка из другого приложения превращалась в плитку.
     public mutating func insertTab(_ id: UUID, after anchor: UUID?) {
         if let anchor, let location = location(of: anchor) {
-            insert(.tab(id), into: location.container, at: location.index + 1)
+            if location.container.zone == .regular {
+                insert(.tab(id), into: location.container, at: location.index + 1)
+            } else {
+                regular.insert(.tab(id), at: 0)
+            }
         } else {
             regular.append(.tab(id))
         }
@@ -269,7 +275,7 @@ public struct SidebarTree: Codable, Equatable, Sendable {
         }
         if location.container.zone != .regular {
             // Из закреплённой вкладки — в начало обычной зоны, подряд за уже открытыми.
-            if let anchorLocation = self.location(of: anchor), anchor != opener {
+            if let anchorLocation = self.location(of: anchor), anchor != opener, anchorLocation.container.zone == .regular {
                 insert(.tab(id), into: anchorLocation.container, at: anchorLocation.index + 1)
             } else {
                 regular.insert(.tab(id), at: 0)

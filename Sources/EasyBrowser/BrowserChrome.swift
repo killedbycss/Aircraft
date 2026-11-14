@@ -31,7 +31,14 @@ enum BrowserCommands {
         case "nextTab": manager.selectAdjacentTab(offset: 1)
         case "openFile": openFilePanel(for: manager)
         case "toggleReader": manager.toggleReaderMode()
+        case "hardReload": manager.hardReloadActiveTab()
+        case "saveSource": SourceCapture.save(from: manager)
+        case "showSources": SourcesWindow.show(for: manager)
         case "newFolder": manager.createFolder()
+        case "newPinnedFolder": manager.createFolder(zone: .pinned)
+        case "focusLeftPane": manager.focusSplitPane(left: true)
+        case "focusRightPane": manager.focusSplitPane(left: false)
+        case "splitView": manager.startSplitView()
         case "addToDock": WebAppMaker.addActiveTab(of: manager)
         default:
             if command.hasPrefix("profile"), let number = Int(command.dropFirst("profile".count)) {

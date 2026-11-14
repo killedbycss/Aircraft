@@ -5,6 +5,7 @@ import QuartzCore
 @MainActor
 final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
     private var keyboardMonitor: Any?
+    private var mouseMonitor: Any?
     private var modifierMonitor: Any?
     private var commandShiftArmed = false
     /// Когда зажали ⌘⇧ — чтобы отличить «нажал и отпустил» от ⌘⇧3/4/5 (снимок экрана):
@@ -61,8 +62,9 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
                 }
                 return event
             }
-            if key == "w", modifiers == [.command] {
-                NotificationCenter.default.post(name: .closeActiveTab, object: target)
+            // keyCode 13 — физическая W: ⌘W работает и в русской раскладке.
+            if key == "w" || event.keyCode == 13, modifiers.subtracting([.function, .numericPad, .capsLock]) == [.command] {
+                self?.handleCommandW(keyWindow: target)
                 return nil
             }
             if let command = self?.browserCommand(for: event, modifiers: modifiers, window: target) {
@@ -114,6 +116,13 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
             if self?.matchesResourceReset(key: key, modifiers: modifiers) == true {
                 NotificationCenter.default.post(name: .resetResources, object: target)
                 return nil
+            }
+            return event
+        }
+        // Split View: клик по странице переводит фокус на её панель.
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            if let window = event.window, let manager = AgentBrowser.manager(for: window), manager.splitTabID != nil {
+                manager.focusSplitPane(at: event.locationInWindow)
             }
             return event
         }
@@ -178,9 +187,17 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
         case (16, [.command]): return "showHistory"               // ⌘Y
         case (35, [.command, .shift]): return "newIncognitoWindow" // ⌘⇧P
         case (31, [.command]): return "openFile"                  // ⌘O
-        case (15, [.command, .shift]): return "toggleReader"      // ⌘⇧R
+        case (1, [.command, .shift]):                              // ⌘⇧S — в «Источники», если мод установлен
+            guard let window, AgentBrowser.manager(for: window)?.modCapabilities.contains("sources") == true else { return nil }
+            return "saveSource"
+        case (15, [.command, .shift]): return CommandShiftRAction.current.command  // ⌘⇧R — настраивается
+        case (15, [.command, .option]): return "hardReload"       // ⌥⌘R, как в Safari
         case (37, [.command, .option]): return "showDownloads"    // ⌥⌘L
         case (47, [.command]): return "stopLoading"               // ⌘.
+        case (123, [.command, .option]), (124, [.command, .option]):
+            // ⌥⌘← / ⌥⌘→ — левая / правая панель Split View.
+            guard let window, AgentBrowser.manager(for: window)?.splitTabID != nil else { return nil }
+            return code == 123 ? "focusLeftPane" : "focusRightPane"
         case (123, [.option]), (124, [.option]):
             guard !Self.isEditingText(in: window) else { return nil }
             return code == 123 ? "previousTab" : "nextTab"
@@ -221,7 +238,30 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
         SessionStore.shared.flush()
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         AgentServer.shared.stop()
+    }
+
+    /// ⌘W никогда не закрывает окно браузера. В окне браузера — закрыть вкладку
+    /// (или панель Split View), в служебном окне (инспектор, библиотека) — закрыть его.
+    /// Без key-окна команда уходит главному окну браузера, а не всем окнам сразу.
+    private func handleCommandW(keyWindow: NSWindow?) {
+        if let keyWindow {
+            if AgentBrowser.manager(for: keyWindow) != nil {
+                NotificationCenter.default.post(name: .closeActiveTab, object: keyWindow)
+            } else if keyWindow.styleMask.contains(.closable), keyWindow.sheetParent == nil, NSApp.modalWindow == nil {
+                keyWindow.performClose(nil)
+            } else {
+                // Диалог или лист поверх окна: вкладки под ним не трогаем.
+                NSSound.beep()
+            }
+            return
+        }
+        if let main = NSApp.mainWindow, AgentBrowser.manager(for: main) != nil {
+            NotificationCenter.default.post(name: .closeActiveTab, object: main)
+        } else {
+            NSSound.beep()
+        }
     }
 
     private func matchesResourceReset(key: String?, modifiers: NSEvent.ModifierFlags) -> Bool {
@@ -357,6 +397,11 @@ struct EasyBrowserApp: App {
                     .keyboardShortcut("l", modifiers: [.command, .option])
             }
 
+            CommandMenu("Источники") {
+                Button("Сохранить страницу в источники") { browserCommand("saveSource") }
+                Button("Открыть источники") { browserCommand("showSources") }
+            }
+
             CommandMenu("Закладки") {
                 Button("Добавить в закладки…") { browserCommand("addBookmark") }
                     .keyboardShortcut("d", modifiers: [.command])
@@ -400,8 +445,11 @@ struct EasyBrowserApp: App {
                 Button("Реальный размер") { browserCommand("zoomReset") }
                     .keyboardShortcut("0", modifiers: [.command])
                 Divider()
+                // ⌘⇧R настраивается (Настройки → Сочетания клавиш), поэтому без значка в меню.
                 Button("Режим чтения") { browserCommand("toggleReader") }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                Button("Обновить без кэша") { browserCommand("hardReload") }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+
             }
 
             CommandMenu("Вкладки") {
@@ -414,7 +462,8 @@ struct EasyBrowserApp: App {
                 }
 
                 Button("Закрыть вкладку") {
-                    NotificationCenter.default.post(name: .closeActiveTab, object: NSApp.keyWindow)
+                    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                    NotificationCenter.default.post(name: .closeActiveTab, object: window)
                 }
 
                 Button("Обновить вкладку") {

@@ -148,6 +148,12 @@ public struct BrowserShellView: View {
                 }
             }
 
+            // Верхний край окна: за него всегда можно потянуть окно, какая бы панель там ни была.
+            WindowDragArea()
+                .frame(height: 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .ignoresSafeArea()
+
             if showSearchModal {
                 // Spotlight не перекрывает панель вкладок, чтобы по ним можно было кликать.
                 SearchModalView(isPresented: $showSearchModal, currentState: $currentState, initialQuery: spotlightSeed)
@@ -385,6 +391,10 @@ public struct SettingsView: View {
     @AppStorage("customURLPrefixesJSON") private var customURLPrefixesJSON: String = "[]"
     @AppStorage("searchEngine") private var searchEngine: String = "duckduckgo"
     @AppStorage("customSearchURL") private var customSearchURL: String = ""
+    @AppStorage(CommandShiftRAction.storageKey) private var commandShiftR: String = CommandShiftRAction.hardReload.rawValue
+    @AppStorage(TopBarItem.tilesAsFolderKey) private var topBarTilesAsFolder = true
+    @AppStorage(SiteIdentity.storageKey) private var siteIdentity: String = SiteIdentity.safari.rawValue
+    @AppStorage(LocalDevelopment.storageKey) private var localDevTools = true
 
     @State private var customScripts: [String] = []
     @State private var editableURLPrefix: String = ""
@@ -546,6 +556,20 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                Picker("Представляться сайтам как", selection: $siteIdentity) {
+                    ForEach(SiteIdentity.allCases) { identity in
+                        Text(identity.title).tag(identity.rawValue)
+                    }
+                }
+                Toggle("Инструменты для localhost", isOn: $localDevTools)
+            } header: {
+                Text("Сайты")
+            } footer: {
+                Text("Safari — рекомендуется: сайты и страницы входа (Google, Microsoft, университетские LMS) видят обычный браузер, а не встроенное окно. «Chrome» — Google, YouTube и сервисы, которые отдают Safari упрощённую версию, показывают то же, что в Chromium; часть сайтов может работать хуже. Инструменты для localhost: значок порта, обновление без кэша, вкладки разработки не усыпляются и не архивируются, сертификат локального сервера принимается без вопросов.")
+                    .foregroundStyle(.secondary)
+            }
+
             ImportSettingsSection(manager: tabManager)
             WebAppsSettingsSection()
 
@@ -658,6 +682,9 @@ public struct SettingsView: View {
                     Text("Снизу").tag("bottom")
                 }
                 .pickerStyle(.segmented)
+                Toggle("Плитки в полосе вкладок — одной папкой", isOn: $topBarTilesAsFolder)
+                    .disabled(tabPosition != "top" && tabPosition != "bottom")
+                    .help("Сверху и снизу плитки собираются в одну кнопку с меню, а не занимают место по одной")
                 LabeledContent("Размер панели") {
                     HStack(spacing: 10) {
                         Slider(value: $tabScale, in: 0.8...1.5, step: 0.05)
@@ -896,7 +923,14 @@ public struct SettingsView: View {
                 LabeledContent("Найти на странице", value: "⌘F  ·  ⌘G  ·  ⌘⇧G")
                 LabeledContent("Масштаб", value: "⌘=  ·  ⌘−  ·  ⌘0")
                 LabeledContent("Скопировать ссылку", value: "⌘⇧C")
-                LabeledContent("Режим чтения", value: "⌘⇧R")
+                Picker("⌘⇧R", selection: $commandShiftR) {
+                    ForEach(CommandShiftRAction.allCases) { action in
+                        Text(action.title).tag(action.rawValue)
+                    }
+                }
+                LabeledContent("Обновить без кэша", value: "⌥⌘R")
+                LabeledContent("Сохранить в «Источники» (мод)", value: "⌘⇧S")
+                LabeledContent("Split View: левая / правая панель", value: "⌥⌘←  ·  ⌥⌘→")
                 LabeledContent("Скрыть элемент на странице", value: "⌥⌘B")
                 LabeledContent("Markdown: правка / сохранить", value: "⌘E  ·  ⌘S")
                 LabeledContent("Web Inspector", value: "F12  ·  ⌥⌘I")
@@ -1288,6 +1322,8 @@ struct BundledMod: Identifiable {
     static let all: [BundledMod] = [
         .init(id: "aircraft-split-view", title: "Разделение экрана",
               subtitle: "Две вкладки рядом в одном окне · держит вторую страницу в памяти", icon: "rectangle.split.2x1", tint: .teal),
+        .init(id: "aircraft-sources", title: "Источники",
+              subtitle: "Библиотека литературы как в Zotero: авторы, DOI, PDF, коллекции, ГОСТ/APA, BibTeX · ⌘⇧S", icon: "books.vertical.fill", tint: .red),
         .init(id: "aircraft-devtools-webextensions", title: "Web Inspector + WebExtensions",
               subtitle: "Консоль, журнал fetch и мост chrome.* в каждой странице · ⌘⌥I", icon: "hammer.fill", tint: .gray)
     ]
@@ -1333,13 +1369,25 @@ private struct SplitBrowserPane: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                Image(systemName: isFocused ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isFocused ? Color.accentColor : .secondary)
-                Text(tab?.title.isEmpty == false ? tab!.title : "Новая страница")
+                Group {
+                    if let tab, tab.url != nil {
+                        TabFavicon(tab: tab, copied: false, size: 13)
+                    } else {
+                        Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 13, height: 13)
+                Text(title)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Spacer(minLength: 4)
                 Menu {
-                    ForEach(tabManager.tabs) { candidate in
+                    Button("Открыть адрес в этой панели…") {
+                        tabManager.focusSplitPane(tabID)
+                        NotificationCenter.default.post(name: .showCurrentURLSpotlight, object: tabManager.hostWindow)
+                    }
+                    Divider()
+                    ForEach(tabManager.tabs.filter { $0.url != nil || $0.id == tabID }) { candidate in
                         Button {
                             tabManager.focusSplitPane(tabID)
                             tabManager.selectTab(id: candidate.id)
@@ -1347,32 +1395,53 @@ private struct SplitBrowserPane: View {
                             if candidate.id == tabID {
                                 Label(candidate.title, systemImage: "checkmark")
                             } else {
-                                Text(candidate.title)
+                                Text(candidate.title.isEmpty ? (candidate.url?.host ?? "Новая вкладка") : candidate.title)
                             }
                         }
+                        .disabled(candidate.id == tabManager.splitPrimaryTabID || candidate.id == tabManager.splitTabID)
                     }
                 } label: {
                     Image(systemName: "rectangle.on.rectangle.angled")
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
-                .help("Выбрать открытую страницу")
-                Button { tabManager.closeSplitView() } label: {
-                    Image(systemName: "rectangle.split.2x1.slash")
+                .help("Выбрать страницу для этой панели")
+                Button { tabManager.swapSplitPanes() } label: {
+                    Image(systemName: "arrow.left.arrow.right")
                 }
                 .buttonStyle(.plain)
-                .help("Закрыть разделение")
+                .help("Поменять панели местами")
+                Button { tabManager.closeSplitPane(tabID) } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.plain)
+                .help("Убрать эту панель (вкладка останется в списке)")
             }
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(isFocused ? .primary : .secondary)
             .padding(.horizontal, 9)
-            .frame(height: 30)
-            .background(isFocused ? Color.accentColor.opacity(0.08) : Color(NSColor.controlBackgroundColor))
+            .frame(height: 28)
+            .background(isFocused ? Color.accentColor.opacity(0.10) : Color.primary.opacity(0.03))
             .contentShape(Rectangle())
+            .onTapGesture(count: 2) { tabManager.swapSplitPanes() }
             .onTapGesture { tabManager.focusSplitPane(tabID) }
             Divider()
             BrowserPane(tabID: tabID, showSearchModal: $showSearchModal)
         }
+        .overlay {
+            // Сфокусированная панель — тонкая рамка цвета акцента: видно, куда пойдут ⌘R, ⌘L и ⌘W.
+            RoundedRectangle(cornerRadius: 2)
+                .strokeBorder(Color.accentColor.opacity(isFocused ? 0.55 : 0), lineWidth: 1.5)
+                .allowsHitTesting(false)
+        }
+        .animation(.easeOut(duration: 0.12), value: isFocused)
+    }
+
+    private var title: String {
+        guard let tab else { return "Новая страница" }
+        if !tab.title.isEmpty, tab.url != nil { return tab.title }
+        return tab.url?.host ?? "Новая страница"
     }
 }
 
@@ -1395,8 +1464,11 @@ private struct SplitResizeHandle: View {
             hovering = value
             if value { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
         }
+        .onTapGesture(count: 2) {
+            withAnimation(.easeOut(duration: 0.18)) { ratio = 0.5 }
+        }
         .gesture(
-            DragGesture(minimumDistance: 0)
+            DragGesture(minimumDistance: 1)
                 .onChanged { value in
                     if startingRatio == nil { startingRatio = ratio }
                     guard totalWidth > 0 else { return }
@@ -1405,7 +1477,7 @@ private struct SplitResizeHandle: View {
                 }
                 .onEnded { _ in startingRatio = nil }
         )
-        .help("Изменить размеры окон")
+        .help("Перетащите, чтобы изменить размеры · двойной клик — поровну")
     }
 }
 
@@ -2103,6 +2175,9 @@ public struct TopBarView: View {
                             case .folder(let folder):
                                 TopBarFolderChip(folder: folder)
                                     .id(folder.id)
+                            case .tiles(let tiles):
+                                TopBarTilesChip(tiles: tiles)
+                                    .id(item.id)
                             case .tab(let tab, let groupColor):
                                 if tab.isPinned {
                                     PinnedTabStripItem(tab: tab, isActive: tab.id == tabManager.activeTabID)
@@ -2127,15 +2202,8 @@ public struct TopBarView: View {
 
                         ModNavigationItems(horizontal: true)
 
-                        Button(action: {
-                            NotificationCenter.default.post(name: .createHomeTab, object: NSApp.keyWindow)
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10 * tabScale, weight: .medium))
-                                .foregroundColor(.secondary)
-                                .frame(width: 32 * tabScale, height: 40 * tabScale)
-                        }
-                        .buttonStyle(.plain)
+                        NewItemMenu(fontSize: 11 * tabScale, clickCreatesTab: true)
+                            .padding(.horizontal, 4)
                     }
                     .animation(.tabList, value: tabManager.tree)
                     .padding(.horizontal, 4)
@@ -2150,6 +2218,7 @@ public struct TopBarView: View {
             }
         }
         .frame(height: 42 * tabScale)
+        .background(WindowDragArea())
         .glassPanel(cornerRadius: 14, inset: 5)
     }
 }
@@ -2309,6 +2378,7 @@ public struct SidebarView: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 8)
             .frame(height: 38 * tabScale)
+            .background(WindowDragArea())
 
             if !pinned {
                 // Незакреплённая панель: «Закрепить» — под «светофором».
@@ -2741,6 +2811,11 @@ public struct SearchModalView: View {
         .onAppear {
             SpotlightPresence.openCount += 1
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { isFocused = true }
+            // Пустое поле (новая вкладка) — сразу недавние вкладки.
+            if query.isEmpty {
+                edited = true
+                suggestions.showRecentTabs(manager: tabManager)
+            }
         }
         .onDisappear { SpotlightPresence.openCount = max(0, SpotlightPresence.openCount - 1) }
     }
@@ -2777,17 +2852,12 @@ public struct SearchModalView: View {
                     return .handled
                 }
                 .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-                    let delta = press.key == .downArrow ? 1 : -1
-                    if urlSystemActive {
-                        let count = URLSystemTargets.suggestions(query: query, prefixes: urlPrefixes).count
-                        guard count > 0 else { return .ignored }
-                        selectedURLSystem = (selectedURLSystem + delta + count) % count
-                        return .handled
-                    }
-                    let count = visibleSuggestions.count
-                    guard count > 0 else { return .ignored }
-                    selectedSuggestion = min(max(selectedSuggestion + delta, -1), count - 1)
-                    return .handled
+                    moveSelection(press.key == .downArrow ? 1 : -1)
+                }
+                // ⌃N / ⌃P — как в Emacs и Spotlight macOS.
+                .onKeyPress(keys: ["n", "p"]) { press in
+                    guard press.modifiers == .control else { return .ignored }
+                    return moveSelection(press.key == "n" ? 1 : -1)
                 }
                 .onExitCommand { isPresented = false }
                 .onChange(of: query) { _, value in
@@ -2826,7 +2896,7 @@ public struct SearchModalView: View {
             spotlightNavButton("arrow.right", help: "Вперёд (⌘])", enabled: tabManager.canGoForward) { tabManager.goForwardActiveTab() }
             spotlightNavButton("arrow.clockwise", help: "Обновить (⌘R)", enabled: tabManager.activeTab?.url != nil) { tabManager.reloadActiveTab() }
             Spacer()
-            Text(urlSystemActive ? "↩ открыть · ↑↓ адрес · Tab — обычный поиск" : "↩ открыть · ⌘↩ в новой вкладке · Tab — URL-система")
+            Text(urlSystemActive ? "↩ открыть · ↑↓ адрес · Tab — обычный поиск" : footerHint)
                 .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -2834,6 +2904,37 @@ public struct SearchModalView: View {
         .padding(.horizontal, 12)
         .frame(height: 32)
         .background(Color.primary.opacity(0.035))
+    }
+
+    /// ↑↓ по подсказкам по кругу; «−1» — само поле. На подставленном адресе ↓ показывает
+    /// недавние вкладки, чтобы переключиться, не стирая адрес.
+    private func moveSelection(_ delta: Int) -> KeyPress.Result {
+        if urlSystemActive {
+            let count = URLSystemTargets.suggestions(query: query, prefixes: urlPrefixes).count
+            guard count > 0 else { return .ignored }
+            selectedURLSystem = (selectedURLSystem + delta + count) % count
+            return .handled
+        }
+        if visibleSuggestions.isEmpty, delta > 0 {
+            edited = true
+            suggestions.showRecentTabs(manager: tabManager)
+            selectedSuggestion = suggestions.items.isEmpty ? -1 : 0
+            return suggestions.items.isEmpty ? .ignored : .handled
+        }
+        let count = visibleSuggestions.count
+        guard count > 0 else { return .ignored }
+        var next = selectedSuggestion + delta
+        if next >= count { next = -1 }
+        if next < -1 { next = count - 1 }
+        selectedSuggestion = next
+        return .handled
+    }
+
+    /// ⇧↩ — открыть в Split View (если мод разделения экрана установлен).
+    private var opensInSplit: Bool {
+        NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+            && tabManager.modCapabilities.contains("splitView")
+            && tabManager.activeTab?.url != nil
     }
 
     private var visibleSuggestions: [SpotlightSuggestion] {
@@ -2845,12 +2946,21 @@ public struct SearchModalView: View {
         currentState = .workspace
     }
 
+    private var footerHint: String {
+        tabManager.modCapabilities.contains("splitView")
+            ? "↩ открыть · ⌘↩ новая вкладка · ⇧↩ рядом · ↑↓ · Tab — URL-система"
+            : "↩ открыть · ⌘↩ в новой вкладке · ↑↓ выбор · Tab — URL-система"
+    }
+
     /// Выбранная подсказка: вкладка — переключиться, остальное — открыть
-    /// (⌘↩ — в новой вкладке).
+    /// (⌘↩ — в новой вкладке, ⇧↩ — рядом, в Split View).
     private func open(_ suggestion: SpotlightSuggestion) {
         let newTab = NSApp.currentEvent?.modifierFlags.contains(.command) == true && tabManager.activeTab?.url != nil
+        let split = opensInSplit
         func go(_ target: String) {
-            if newTab {
+            if split {
+                tabManager.openInSplit(url: Self.resolve(target))
+            } else if newTab {
                 let url = URLRouter.navigationTarget(input: target, searchTemplate: SearchEngineOption.queryTemplate(
                     for: UserDefaults.standard.string(forKey: "searchEngine") ?? "duckduckgo",
                     customURL: UserDefaults.standard.string(forKey: "customSearchURL") ?? "")).flatMap(URL.init(string:))
@@ -2861,6 +2971,8 @@ public struct SearchModalView: View {
         }
         switch suggestion.kind {
         case .autocomplete(let host): go("https://" + host)
+        case .tab(let id) where split:
+            tabManager.activateSplit(with: id)
         case .tab(let id):
             // Пустая вкладка, с которой переключились, не нужна.
             if let empty = tabManager.activeTab, empty.url == nil {
@@ -2885,7 +2997,9 @@ public struct SearchModalView: View {
             target = prefixed
         }
         if !target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if flags.contains(.command), tabManager.activeTab?.url != nil {
+            if opensInSplit {
+                tabManager.openInSplit(url: Self.resolve(target))
+            } else if flags.contains(.command), tabManager.activeTab?.url != nil {
                 let url = URLRouter.navigationTarget(input: target, searchTemplate: SearchEngineOption.queryTemplate(
                     for: UserDefaults.standard.string(forKey: "searchEngine") ?? "duckduckgo",
                     customURL: UserDefaults.standard.string(forKey: "customSearchURL") ?? "")).flatMap(URL.init(string:))
@@ -2895,6 +3009,13 @@ public struct SearchModalView: View {
             }
         }
         close()
+    }
+
+    /// Адрес для ввода: URL как есть, остальное — поиск выбранным поисковиком.
+    private static func resolve(_ target: String) -> URL? {
+        URLRouter.navigationTarget(input: target, searchTemplate: SearchEngineOption.queryTemplate(
+            for: UserDefaults.standard.string(forKey: "searchEngine") ?? "duckduckgo",
+            customURL: UserDefaults.standard.string(forKey: "customSearchURL") ?? "")).flatMap(URL.init(string:))
     }
 
     /// Кнопка навигации в Spotlight: выполняет действие на активной вкладке и закрывает Spotlight.

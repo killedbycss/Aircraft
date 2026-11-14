@@ -35,6 +35,18 @@ final class SidebarTreeTests: XCTestCase {
         XCTAssertEqual(tree.folder(folder.id)?.children, [.tab(tabs[0]), .tab(tabs[1])])
     }
 
+    func testNewTabNextToTileGoesToRegularTabs() {
+        let tabs = ids(4)
+        var tree = SidebarTree(favorites: [.tab(tabs[0])], pinned: [.tab(tabs[1])], regular: [.tab(tabs[2])])
+        tree.insertTab(tabs[3], after: tabs[0])
+        XCTAssertEqual(tree.favorites, [.tab(tabs[0])], "Ссылка из другого приложения не становится плиткой")
+        XCTAssertEqual(tree.regular, [.tab(tabs[3]), .tab(tabs[2])])
+        let pinnedChild = UUID()
+        tree.insertTab(pinnedChild, after: tabs[1])
+        XCTAssertEqual(tree.pinned, [.tab(tabs[1])])
+        XCTAssertEqual(tree.zone(of: pinnedChild), .regular)
+    }
+
     func testGroupingCanBeDisabled() {
         let tabs = ids(2)
         var tree = SidebarTree(regular: [.tab(tabs[0])])

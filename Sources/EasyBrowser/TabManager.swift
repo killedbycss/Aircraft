@@ -344,28 +344,57 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     }
 
     public func closeActiveTabFromShortcut() {
-        guard let id = activeTabID,
-              let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        guard let id = activeTabID, tabs.contains(where: { $0.id == id }) else { return }
+        // Split View: ⌘W закрывает только сфокусированную панель, вторая страница
+        // остаётся на экране одна. Другие вкладки в панель не подставляются.
+        if let primary = splitPrimaryTabID, let secondary = splitTabID, id == primary || id == secondary {
+            let survivor = id == primary ? secondary : primary
+            splitPrimaryTabID = nil
+            splitTabID = nil
+            activeTabID = survivor
+            if isProtectedPin(id) {
+                resetPinnedTab(id)
+            } else {
+                closeTab(id: id, remember: tabs.first(where: { $0.id == id })?.url != nil)
+            }
+            selectTab(id: survivor)
+            saveSession()
+            return
+        }
         // Закреплённая вкладка и плитка ⌘W не закрываются никогда: как в Arc, вкладка
         // возвращается к закреплённому адресу, выгружается, а фокус уходит на соседнюю.
         if isProtectedPin(id) {
-            if !tabs[index].isPinned { syncPinnedFlags() }
-            let pinnedURL = tabs[index].pinnedURL ?? tabs[index].url
-            if tabs[index].pinnedURL == nil { tabs[index].pinnedURL = pinnedURL }
-            if let pinnedURL, tabs[index].webView?.url != pinnedURL {
-                tabs[index].url = pinnedURL
-                tabs[index].interactionState = nil
-                tabs[index].favicon = FaviconCache.shared.image(for: pinnedURL) ?? tabs[index].favicon
-            }
             let fallback = tabs
-                .filter { $0.id != id && !$0.isPinned }
+                .filter { $0.id != id && !isProtectedPin($0.id) }
                 .max { $0.lastActiveAt < $1.lastActiveAt }?.id
-            hibernateTab(id: id)
-            if let pinnedURL { tabs[index].url = pinnedURL; tabs[index].interactionState = nil }
-            if let fallback { selectTab(id: fallback) }
+            resetPinnedTab(id)
+            if let fallback {
+                selectTab(id: fallback)
+            } else {
+                // Обычных вкладок нет — пустая вкладка со Spotlight, иначе выгруженная
+                // закреплённая тут же проснулась бы снова.
+                createNewTab()
+                NotificationCenter.default.post(name: .showEmptySpotlight, object: hostWindow)
+            }
             saveSession()
         } else {
             closeTab(id: id)
+        }
+    }
+
+    /// Возвращает закреплённую вкладку или плитку к закреплённому адресу и выгружает её.
+    private func resetPinnedTab(_ id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        if !tabs[index].isPinned { syncPinnedFlags() }
+        let pinnedURL = tabs[index].pinnedURL ?? tabs[index].url
+        if tabs[index].pinnedURL == nil { tabs[index].pinnedURL = pinnedURL }
+        hibernateTab(id: id)
+        guard let after = tabs.firstIndex(where: { $0.id == id }) else { return }
+        if let pinnedURL {
+            tabs[after].url = pinnedURL
+            tabs[after].interactionState = nil
+            tabs[after].content = Self.viewerContent(forLocal: pinnedURL) ?? .web
+            tabs[after].favicon = FaviconCache.shared.image(for: pinnedURL) ?? tabs[after].favicon
         }
     }
 
@@ -421,6 +450,63 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         guard tabID == splitPrimaryTabID || tabID == splitTabID else { return }
         activeTabID = tabID
         saveSession()
+    }
+
+    /// Открывает адрес рядом с текущей страницей (⇧↩ в Spotlight). В уже открытом
+    /// Split View адрес открывается в сфокусированной панели.
+    public func openInSplit(url: URL?) {
+        guard let url else { return }
+        guard modCapabilities.contains("splitView"), splitTabID == nil, activeTab?.url != nil else {
+            navigateActiveTab(to: url.absoluteString)
+            return
+        }
+        let id = createNewTab(url: url, selectNewTab: false, afterTabID: activeTabID)
+        activateSplit(with: id)
+    }
+
+    /// Меняет панели Split View местами; фокус остаётся на той же странице.
+    public func swapSplitPanes() {
+        guard let primary = splitPrimaryTabID, let secondary = splitTabID else { return }
+        splitPrimaryTabID = secondary
+        splitTabID = primary
+        saveSession()
+    }
+
+    /// Убирает одну панель: вкладка остаётся в списке, на экране — вторая страница.
+    /// Пустая вкладка, которую так и не открыли, закрывается.
+    public func closeSplitPane(_ tabID: UUID) {
+        guard let primary = splitPrimaryTabID, let secondary = splitTabID,
+              tabID == primary || tabID == secondary else { return }
+        let survivor = tabID == primary ? secondary : primary
+        splitPrimaryTabID = nil
+        splitTabID = nil
+        activeTabID = survivor
+        if let tab = tabs.first(where: { $0.id == tabID }), tab.url == nil, !tab.isPinned {
+            closeTab(id: tabID, remember: false)
+        }
+        selectTab(id: survivor)
+    }
+
+    /// Фокус на соседнюю панель Split View (⌥⌘← / ⌥⌘→). Возвращает false вне Split View.
+    @discardableResult
+    public func focusSplitPane(left: Bool) -> Bool {
+        guard let primary = splitPrimaryTabID, let secondary = splitTabID else { return false }
+        focusSplitPane(left ? primary : secondary)
+        return true
+    }
+
+    /// Клик внутрь страницы в Split View переводит фокус на её панель,
+    /// чтобы ⌘L, ⌘R и ⌘W работали с той страницей, по которой кликнули.
+    func focusSplitPane(at locationInWindow: NSPoint) {
+        guard let primary = splitPrimaryTabID, let secondary = splitTabID else { return }
+        for id in [primary, secondary] where id != activeTabID {
+            guard let webView = tabs.first(where: { $0.id == id })?.webView, webView.window != nil else { continue }
+            let point = webView.convert(locationInWindow, from: nil)
+            if webView.bounds.contains(point) {
+                focusSplitPane(id)
+                return
+            }
+        }
     }
 
     public func closeSplitView() {
@@ -562,10 +648,24 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         } else {
             if activeTab.isHibernated || activeTab.webView == nil {
                 if let activeTabID = activeTabID { restoreTab(id: activeTabID) }
+            } else if LocalDevelopment.keepsAlive(activeTab.url) {
+                // Локальный сервер: всегда свежие файлы, без кэша.
+                activeTab.webView?.reloadFromOrigin()
             } else {
                 activeTab.webView?.reload()
             }
         }
+    }
+
+    /// Обновить без кэша (⌥⌘R, или ⌘⇧R, если так выбрано в настройках).
+    public func hardReloadActiveTab() {
+        guard let id = activeTabID, let tab = activeTab, tab.url != nil else { return }
+        if tab.isHibernated || tab.webView == nil {
+            restoreTab(id: id)
+        } else {
+            tab.webView?.reloadFromOrigin()
+        }
+        showToast("Обновлено без кэша", symbol: "arrow.clockwise")
     }
 
     public func goBackActiveTab() {
@@ -745,6 +845,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         // Включает встроенный Web Inspector (F12, «Проверить элемент» в контекстном меню).
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         config.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
+        // «Version/… Safari/…» — иначе Google считает браузер устаревшим или встроенным окном.
+        config.applicationNameForUserAgent = SiteIdentity.safariApplicationName
         scriptBridge.configure(userContentController: config.userContentController)
         loadCustomModifications(into: config.userContentController)
         AdBlocker.shared.attach(to: config.userContentController)
@@ -771,10 +873,13 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
     private func configureContentMode(for webView: WKWebView) {
         webView.configuration.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
-        webView.customUserAgent = mobileBrowsing ? Self.mobileUserAgent : nil
+        webView.customUserAgent = desiredUserAgent(for: webView.url)
     }
 
-    private static let mobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+    /// User-Agent для адреса: iPhone в узком окне, Chrome — если так выбрано в настройках.
+    func desiredUserAgent(for url: URL?) -> String? {
+        mobileBrowsing ? SiteIdentity.mobileUserAgent : SiteIdentity.customUserAgent(for: url)
+    }
 
     private func loadCustomModifications(into controller: WKUserContentController) {
         guard let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
@@ -1138,10 +1243,17 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
     nonisolated public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         let description = (error as NSError).description
+        let code = (error as NSError).code
+        let failingURL = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL
         Task { @MainActor in
             NSLog("Aircraft: provisional navigation failed: %@", description)
             if let index = self.tabs.firstIndex(where: { $0.webView === webView }) {
                 self.tabs[index].isLoading = false
+                if self.tabs[index].id == self.activeTabID, code == NSURLErrorCannotConnectToHost,
+                   let url = failingURL ?? self.tabs[index].url, LocalDevelopment.isLocal(url) {
+                    self.showToast("\(url.host ?? "localhost")\(url.port.map { ":\($0)" } ?? "") не отвечает — сервер запущен?",
+                                   symbol: "bolt.horizontal.circle")
+                }
             }
         }
     }
@@ -1150,6 +1262,69 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         Task { @MainActor in
             if let index = self.tabs.firstIndex(where: { $0.webView === webView }) {
                 self.tabs[index].isLoading = false
+            }
+        }
+    }
+
+    // MARK: - Вход по паролю (HTTP-авторизация)
+
+    /// Basic, Digest и NTLM: без этого обработчика WebKit молча отменял вход, и страницы
+    /// университетов и внутренних порталов (в т. ч. за ADFS) оставались пустыми.
+    /// Самоподписанный сертификат локального сервера принимаем без вопросов.
+    nonisolated public func webView(
+        _ webView: WKWebView,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        let method = challenge.protectionSpace.authenticationMethod
+        let host = challenge.protectionSpace.host
+        let realm = challenge.protectionSpace.realm
+        let failures = challenge.previousFailureCount
+        let proposedUser = challenge.proposedCredential?.user
+        let trust = challenge.protectionSpace.serverTrust
+        MainActor.assumeIsolated {
+            if method == NSURLAuthenticationMethodServerTrust {
+                if let trust, LocalDevelopment.isEnabled, LocalDevelopment.isLocalHost(host) {
+                    completionHandler(.useCredential, URLCredential(trust: trust))
+                } else {
+                    completionHandler(.performDefaultHandling, nil)
+                }
+                return
+            }
+            guard [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest,
+                   NSURLAuthenticationMethodNTLM].contains(method), failures < 5 else {
+                completionHandler(.performDefaultHandling, nil)
+                return
+            }
+            let alert = NSAlert()
+            alert.messageText = "Вход на \(host)"
+            alert.informativeText = (failures > 0 ? "Неверный логин или пароль. " : "")
+                + (realm.map { "Сайт просит войти: «\($0)»." } ?? "Сайт просит логин и пароль.")
+            let user = NSTextField(frame: NSRect(x: 0, y: 30, width: 260, height: 24))
+            user.placeholderString = "Логин"
+            user.stringValue = proposedUser ?? ""
+            let password = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+            password.placeholderString = "Пароль"
+            let remember = NSButton(checkboxWithTitle: "Запомнить в связке ключей", target: nil, action: nil)
+            remember.frame = NSRect(x: 0, y: -28, width: 260, height: 20)
+            let box = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 82))
+            let rows: [(NSView, CGFloat)] = [(user, 58), (password, 28), (remember, 0)]
+            for (view, y) in rows {
+                view.frame.origin = NSPoint(x: 0, y: y)
+                box.addSubview(view)
+            }
+            alert.accessoryView = box
+            alert.addButton(withTitle: "Войти")
+            alert.addButton(withTitle: "Отмена")
+            alert.window.initialFirstResponder = proposedUser == nil ? user : password
+            Self.present(alert, over: webView) { response in
+                guard response == .alertFirstButtonReturn else {
+                    completionHandler(.cancelAuthenticationChallenge, nil)
+                    return
+                }
+                let credential = URLCredential(user: user.stringValue, password: password.stringValue,
+                                               persistence: remember.state == .on ? .permanent : .forSession)
+                completionHandler(.useCredential, credential)
             }
         }
     }
@@ -1196,6 +1371,26 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 decisionHandler(.cancel, preferences)
             }
             return
+        }
+        // Chrome только для Google: User-Agent меняется до загрузки, поэтому переход
+        // перезапускаем уже с нужным заголовком.
+        if navigationAction.targetFrame?.isMainFrame == true,
+           navigationAction.request.httpMethod == "GET",
+           let url = navigationAction.request.url,
+           url.scheme == "http" || url.scheme == "https" {
+            let switched: Bool = MainActor.assumeIsolated {
+                let desired = desiredUserAgent(for: url)
+                guard (webView.customUserAgent ?? "") != (desired ?? "") else { return false }
+                webView.customUserAgent = desired
+                return true
+            }
+            if switched {
+                MainActor.assumeIsolated {
+                    decisionHandler(.cancel, preferences)
+                    webView.load(navigationAction.request)
+                }
+                return
+            }
         }
         // Защита от трекеров: убираем метки отслеживания (utm_*, fbclid, gclid…) из адреса страницы.
         if navigationAction.targetFrame?.isMainFrame == true,

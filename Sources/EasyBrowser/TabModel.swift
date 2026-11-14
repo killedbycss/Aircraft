@@ -65,7 +65,8 @@ public struct TabModel: Identifiable, Equatable {
     }
 
     /// Вкладку нельзя усыплять и архивировать: играет звук, идёт запись или картинка в картинке.
-    public var isBusy: Bool { isPlayingAudio || isCapturingMedia || isInPictureInPicture }
+    /// Локальный сервер (localhost) тоже не усыпляем: идёт разработка.
+    public var isBusy: Bool { isPlayingAudio || isCapturingMedia || isInPictureInPicture || LocalDevelopment.keepsAlive(url) }
 
     public static func == (lhs: TabModel, rhs: TabModel) -> Bool {
         lhs.id == rhs.id &&

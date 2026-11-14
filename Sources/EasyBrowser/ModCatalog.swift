@@ -5,7 +5,8 @@ enum ModCatalog {
     /// (скрипт в каждой странице или вторая живая страница рядом).
     static let bundledBaseNames = [
         "aircraft-devtools-webextensions",
-        "aircraft-split-view"
+        "aircraft-split-view",
+        "aircraft-sources"
     ]
 
     /// Бывшие моды, которые стали частью браузера: «Цветные темы» → Внешний вид,
@@ -18,7 +19,8 @@ enum ModCatalog {
     /// Возможность, которую даёт установленный встроенный мод.
     static let capabilities: [String: String] = [
         "aircraft-devtools-webextensions": "devtools",
-        "aircraft-split-view": "splitView"
+        "aircraft-split-view": "splitView",
+        "aircraft-sources": "sources"
     ]
 
     static func family(for fileName: String) -> String? {

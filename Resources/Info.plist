@@ -89,6 +89,11 @@
     <string>Сайты, которым вы разрешите, смогут узнать ваше местоположение — например, для карт.</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>

@@ -361,3 +361,31 @@ extension View {
         }
     }
 }
+
+// MARK: - Перетаскивание окна
+
+/// Пустое место, за которое можно тянуть окно (и двойным кликом развернуть его —
+/// как задано в Системных настройках). SwiftUI-панели и страница сами окно не двигают,
+/// поэтому без этого сверху «не за что потянуть».
+struct WindowDragArea: NSViewRepresentable {
+    final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            if event.clickCount == 2 {
+                switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize" {
+                case "Minimize": window.performMiniaturize(nil)
+                case "None": break
+                default: window.performZoom(nil)
+                }
+                return
+            }
+            window.performDrag(with: event)
+        }
+    }
+
+    func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}

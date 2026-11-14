@@ -6,6 +6,32 @@ enum GroupPalette {
     static let colors: [Color] = [.blue, .purple, .pink, .red, .orange, .yellow, .green, .teal]
     static let names = ["Синий", "Фиолетовый", "Розовый", "Красный", "Оранжевый", "Жёлтый", "Зелёный", "Бирюзовый"]
     static func color(_ index: Int) -> Color { colors[((index % colors.count) + colors.count) % colors.count] }
+
+    /// Цвет для текста и значков: в тёмной теме чуть светлее, в светлой — темнее (жёлтый
+    /// и бирюзовый на светлой панели почти не видны).
+    static func readable(_ index: Int, scheme: ColorScheme) -> Color {
+        let base = NSColor(color(index)).usingColorSpace(.sRGB) ?? .gray
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+        base.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        if scheme == .dark {
+            return Color(hue: hue, saturation: saturation * 0.8, brightness: min(1, max(brightness, 0.85)))
+        }
+        return Color(hue: hue, saturation: min(1, saturation * 1.1), brightness: min(brightness, 0.72))
+    }
+}
+
+/// Пункт меню с цветным кружком (в меню macOS SF-символы одноцветные, поэтому — картинка).
+struct ColorMenuLabel: View {
+    let index: Int
+    var checked = false
+
+    var body: some View {
+        Label {
+            Text(checked ? GroupPalette.names[index] + "  ✓" : GroupPalette.names[index])
+        } icon: {
+            Image(nsImage: MenuIcons.swatch(GroupPalette.color(index)))
+        }
+    }
 }
 
 /// Перетаскиваемый узел панели вкладок.
@@ -35,7 +61,9 @@ struct TabTreeList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: style == .mobile ? 6 : 2) {
             if !tabManager.tree.pinned.isEmpty {
-                ZoneHeader(title: "Закреплённые", zone: .pinned)
+                // Без заголовка «Закреплённые»: зону отделяет только линия, как в Arc.
+                // Тонкая полоска сверху принимает вкладку, которую хотят закрепить.
+                ZoneDropArea(zone: .pinned, height: 4)
                 ForEach(tabManager.tree.pinned) { node in
                     TabTreeNodeView(node: node, depth: 0, style: style, side: side)
                 }
@@ -50,42 +78,17 @@ struct TabTreeList: View {
     }
 }
 
-/// Заголовок зоны: на него можно бросить вкладку, чтобы закрепить её.
-private struct ZoneHeader: View {
-    let title: String
-    let zone: SidebarZone
-    @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
-    @State private var targeted = false
-
-    var body: some View {
-        HStack {
-            Text(title.uppercased())
-                .font(.system(size: 9 * tabScale, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 4)
-        .frame(height: 18 * tabScale)
-        .background(targeted ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 5))
-        .dropDestination(for: String.self) { items, _ in
-            guard let id = items.compactMap(TabDragPayload.decode).first else { return false }
-            return tabManager.dropNode(id, toEndOf: zone)
-        } isTargeted: { targeted = $0 }
-    }
-}
-
 /// Пустое место под списком: бросить сюда — в конец обычных вкладок.
 private struct ZoneDropArea: View {
     let zone: SidebarZone
+    var height: CGFloat = 10
     @Environment(TabManager.self) private var tabManager: TabManager
     @State private var targeted = false
 
     var body: some View {
         RoundedRectangle(cornerRadius: 4)
             .fill(targeted ? Color.accentColor.opacity(0.5) : Color.clear)
-            .frame(height: targeted ? 3 : 10)
+            .frame(height: targeted ? max(3, height) : height)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .dropDestination(for: String.self) { items, _ in
@@ -147,6 +150,7 @@ private struct FolderHeader: View {
     @State private var draftTitle = ""
     @FocusState private var titleFocused: Bool
 
+    @Environment(\.colorScheme) private var colorScheme
     private var isRenaming: Bool { tabManager.renamingFolderID == folder.id }
     private var tabCount: Int { SidebarNode.folder(folder).tabIDs.count }
     private var container: SidebarContainer {
@@ -163,9 +167,9 @@ private struct FolderHeader: View {
             if folder.kind == .group {
                 Circle().fill(GroupPalette.color(folder.colorIndex)).frame(width: 9 * tabScale, height: 9 * tabScale)
             } else {
-                Image(systemName: folder.isExpanded ? "folder" : "folder.fill")
+                Image(systemName: folder.folderColor == nil && folder.isExpanded ? "folder" : "folder.fill")
                     .font(.system(size: 11 * tabScale))
-                    .foregroundStyle(folder.folderColor.map { AnyShapeStyle(GroupPalette.color($0)) } ?? AnyShapeStyle(.secondary))
+                    .foregroundStyle(folder.folderColor.map { AnyShapeStyle(GroupPalette.readable($0, scheme: colorScheme)) } ?? AnyShapeStyle(.secondary))
             }
             if isRenaming {
                 TextField("Название", text: $draftTitle)
@@ -213,14 +217,18 @@ private struct FolderHeader: View {
         .contextMenu { menu }
     }
 
+    /// Название — обычным цветом текста: цветной текст на тонированной панели (и в тёмной
+    /// теме) плохо читался. Цвет папки — у значка и у подложки.
     private var titleColor: Color {
-        if folder.kind == .group { return GroupPalette.color(folder.colorIndex) }
-        return folder.folderColor.map(GroupPalette.color) ?? .primary
+        if folder.kind == .group { return GroupPalette.readable(folder.colorIndex, scheme: colorScheme) }
+        return .primary
     }
 
     private var headerFill: Color {
         if targeted { return Color.accentColor.opacity(0.18) }
-        if folder.kind == .folder, let color = folder.folderColor { return GroupPalette.color(color).opacity(0.12) }
+        if folder.kind == .folder, let color = folder.folderColor {
+            return GroupPalette.color(color).opacity(colorScheme == .dark ? 0.22 : 0.14)
+        }
         return .clear
     }
 
@@ -237,15 +245,16 @@ private struct FolderHeader: View {
                     Button {
                         tabManager.setFolderColor(folder.id, colorIndex: index)
                     } label: {
-                        if folder.folderColor == index { Label(GroupPalette.names[index], systemImage: "checkmark") }
-                        else { Text(GroupPalette.names[index]) }
+                        ColorMenuLabel(index: index, checked: folder.folderColor == index)
                     }
                 }
             }
         } else {
             Menu("Цвет") {
                 ForEach(GroupPalette.colors.indices, id: \.self) { index in
-                    Button(GroupPalette.names[index]) { tabManager.setGroupColor(folder.id, colorIndex: index) }
+                    Button { tabManager.setGroupColor(folder.id, colorIndex: index) } label: {
+                        ColorMenuLabel(index: index, checked: folder.colorIndex == index)
+                    }
                 }
             }
             Button("Превратить в папку") { tabManager.convertGroupToFolder(folder.id) }
@@ -408,6 +417,12 @@ struct TabStatusIcons: View {
                 .buttonStyle(.plain)
                 .help("Сайт использует камеру или микрофон. Нажмите, чтобы остановить")
             }
+            if tabManager.splitTabID != nil, tab.id == tabManager.splitPrimaryTabID || tab.id == tabManager.splitTabID {
+                Image(systemName: "rectangle.split.2x1")
+                    .font(.system(size: fontSize))
+                    .foregroundStyle(.secondary)
+                    .help("Открыта в Split View")
+            }
             if tab.isInPictureInPicture {
                 Image(systemName: "pip.fill")
                     .font(.system(size: fontSize))
@@ -459,6 +474,12 @@ struct TabContextMenu: View {
                 tabManager.bookmarks.add(title: tab.title, url: url)
             }
             .disabled(tabManager.bookmarks.contains(url))
+            if tabManager.modCapabilities.contains("sources") {
+                Button("Сохранить в источники") {
+                    tabManager.selectTab(id: tab.id)
+                    SourceCapture.save(from: tabManager)
+                }
+            }
             Button("Скопировать ссылку") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString((AdBlocker.cleanedURL(url) ?? url).absoluteString, forType: .string)
@@ -493,6 +514,7 @@ struct TabContextMenu: View {
 struct TopBarFolderChip: View {
     let folder: TabFolder
     @Environment(TabManager.self) private var tabManager: TabManager
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("tabScale") private var tabScale: Double = 0.9
     @State private var targeted = false
 
@@ -523,11 +545,23 @@ struct TopBarFolderChip: View {
             if folder.kind == .group {
                 Menu("Цвет") {
                     ForEach(GroupPalette.colors.indices, id: \.self) { index in
-                        Button(GroupPalette.names[index]) { tabManager.setGroupColor(folder.id, colorIndex: index) }
+                        Button { tabManager.setGroupColor(folder.id, colorIndex: index) } label: {
+                            ColorMenuLabel(index: index, checked: folder.colorIndex == index)
+                        }
                     }
                 }
                 Button("Переименовать…") { renameWithAlert() }
                 Button("Разгруппировать") { tabManager.dissolveFolder(folder.id) }
+            } else {
+                Menu("Цвет папки") {
+                    Button("Без цвета") { tabManager.setFolderColor(folder.id, colorIndex: nil) }
+                    Divider()
+                    ForEach(GroupPalette.colors.indices, id: \.self) { index in
+                        Button { tabManager.setFolderColor(folder.id, colorIndex: index) } label: {
+                            ColorMenuLabel(index: index, checked: folder.folderColor == index)
+                        }
+                    }
+                }
             }
             Button("Закрыть все вкладки") { tabManager.closeFolder(folder.id) }
         }
@@ -537,19 +571,30 @@ struct TopBarFolderChip: View {
         HStack(spacing: 5) {
             Image(systemName: folder.kind == .group ? "circle.fill" : "folder.fill")
                 .font(.system(size: (folder.kind == .group ? 7 : 10) * tabScale))
+                .foregroundStyle(folder.kind == .folder ? AnyShapeStyle(folder.folderColor.map { GroupPalette.readable($0, scheme: colorScheme) } ?? Color.secondary) : AnyShapeStyle(chipForeground))
             Text(folder.title).lineLimit(1)
             if folder.kind == .folder || !folder.isExpanded {
                 Text("\(SidebarNode.folder(folder).tabIDs.count)").foregroundStyle(.secondary)
             }
         }
         .font(.system(size: 11 * tabScale, weight: .semibold))
-        .foregroundStyle(folder.kind == .group ? GroupPalette.color(folder.colorIndex) : (folder.folderColor.map(GroupPalette.color) ?? .primary))
+        .foregroundStyle(chipForeground)
         .padding(.horizontal, 10 * tabScale)
         .frame(maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill((folder.kind == .group ? GroupPalette.color(folder.colorIndex) : Color.primary).opacity(targeted ? 0.3 : 0.12))
+                .fill(chipTint.opacity(targeted ? 0.3 : (colorScheme == .dark ? 0.2 : 0.12)))
         )
+    }
+
+    private var chipTint: Color {
+        if folder.kind == .group { return GroupPalette.color(folder.colorIndex) }
+        return folder.folderColor.map(GroupPalette.color) ?? .primary
+    }
+
+    private var chipForeground: Color {
+        if folder.kind == .group { return GroupPalette.readable(folder.colorIndex, scheme: colorScheme) }
+        return .primary
     }
 
     @ViewBuilder
@@ -579,15 +624,22 @@ struct TopBarFolderChip: View {
     }
 }
 
-/// Узлы верхнего уровня для горизонтальной полосы: вкладки, группы (с вкладками, если раскрыты) и папки.
+/// Узлы верхнего уровня для горизонтальной полосы: плитки (одной папкой), вкладки,
+/// группы (с вкладками, если раскрыты) и папки.
 enum TopBarItem: Identifiable {
     case tab(TabModel, groupColor: Color?)
     case folder(TabFolder)
+    /// Все плитки одной «папкой» в начале полосы.
+    case tiles([TabModel])
+
+    static let tilesID = UUID(uuidString: "7E1E5000-0000-4000-8000-000000000001")!
+    static let tilesAsFolderKey = "topBarTilesAsFolder"
 
     var id: UUID {
         switch self {
         case .tab(let tab, _): tab.id
         case .folder(let folder): folder.id
+        case .tiles: Self.tilesID
         }
     }
 
@@ -595,7 +647,15 @@ enum TopBarItem: Identifiable {
     static func items(for manager: TabManager) -> [TopBarItem] {
         var result: [TopBarItem] = []
         let byID = Dictionary(uniqueKeysWithValues: manager.tabs.map { ($0.id, $0) })
-        for node in manager.tree.favorites + manager.tree.pinned + manager.tree.regular {
+        let tilesAsFolder = UserDefaults.standard.object(forKey: tilesAsFolderKey) as? Bool ?? true
+        var nodes = manager.tree.pinned + manager.tree.regular
+        if tilesAsFolder {
+            let tiles = manager.tree.favorites.flatMap(\.tabIDs).compactMap { byID[$0] }
+            if !tiles.isEmpty { result.append(.tiles(tiles)) }
+        } else {
+            nodes = manager.tree.favorites + nodes
+        }
+        for node in nodes {
             switch node {
             case .tab(let id):
                 if let tab = byID[id] { result.append(.tab(tab, groupColor: nil)) }
@@ -609,5 +669,114 @@ enum TopBarItem: Identifiable {
             }
         }
         return result
+    }
+}
+
+/// Плитки в верхней полосе — одной кнопкой: значки первых плиток, по клику — меню всех плиток.
+/// Если сейчас открыта плитка, кнопка подсвечена и показывает её значок первым.
+struct TopBarTilesChip: View {
+    let tiles: [TabModel]
+    @Environment(TabManager.self) private var tabManager: TabManager
+    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @State private var targeted = false
+
+    private var activeTile: TabModel? { tiles.first { $0.id == tabManager.activeTabID } }
+
+    var body: some View {
+        Menu {
+            ForEach(tiles) { tile in
+                Button {
+                    tabManager.selectTab(id: tile.id)
+                } label: {
+                    if let image = MenuIcons.favicon(for: tile) {
+                        Label { Text(menuTitle(tile)) } icon: { Image(nsImage: image) }
+                    } else {
+                        Text(menuTitle(tile))
+                    }
+                }
+            }
+            Divider()
+            Button("Показывать плитки по одной") {
+                UserDefaults.standard.set(false, forKey: TopBarItem.tilesAsFolderKey)
+            }
+        } label: {
+            HStack(spacing: -3 * tabScale) {
+                ForEach(previewTiles) { tile in
+                    FaviconImage(url: tile.url ?? tile.pinnedURL, image: tile.favicon, size: 14 * tabScale)
+                        .padding(1.5)
+                }
+                if tiles.count > previewTiles.count {
+                    Text("+\(tiles.count - previewTiles.count)")
+                        .font(.system(size: 9 * tabScale, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 6 * tabScale)
+                }
+            }
+            .padding(.horizontal, 8 * tabScale)
+            .frame(maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(activeTile != nil ? 0.12 : (targeted ? 0.18 : 0.06)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.accentColor.opacity(activeTile != nil ? 0.6 : 0), lineWidth: 1.2)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.vertical, 7 * tabScale)
+        .help(activeTile.map { "Плитки · сейчас: \(menuTitle($0))" } ?? "Плитки (\(tiles.count))")
+        .dropDestination(for: String.self) { items, _ in
+            guard let id = items.compactMap(TabDragPayload.decode).first else { return false }
+            return tabManager.dropNode(id, toEndOf: .favorites)
+        } isTargeted: { targeted = $0 }
+    }
+
+    /// Открытая плитка — первой, дальше по порядку; всего не больше трёх значков.
+    private var previewTiles: [TabModel] {
+        var ordered = tiles
+        if let activeTile, let index = ordered.firstIndex(where: { $0.id == activeTile.id }) {
+            ordered.remove(at: index)
+            ordered.insert(activeTile, at: 0)
+        }
+        return Array(ordered.prefix(3))
+    }
+
+    private func menuTitle(_ tile: TabModel) -> String {
+        if !tile.title.isEmpty { return tile.title }
+        return (tile.pinnedURL ?? tile.url)?.host ?? "Плитка"
+    }
+}
+
+/// Цветные картинки для пунктов меню: в NSMenu символы SF рисуются шаблоном (одним цветом),
+/// поэтому кружки цветов и значки сайтов готовим как обычные NSImage.
+@MainActor
+enum MenuIcons {
+    static func swatch(_ color: Color, diameter: CGFloat = 12) -> NSImage {
+        let nsColor = NSColor(color)
+        let image = NSImage(size: NSSize(width: diameter, height: diameter), flipped: false) { rect in
+            nsColor.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
+            NSColor.black.withAlphaComponent(0.15).setStroke()
+            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            ring.lineWidth = 0.5
+            ring.stroke()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    static func favicon(for tab: TabModel, side: CGFloat = 16) -> NSImage? {
+        guard let source = tab.favicon ?? FaviconCache.shared.image(for: tab.url ?? tab.pinnedURL) else { return nil }
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            NSBezierPath(roundedRect: rect, xRadius: side * FaviconImage.cornerRatio, yRadius: side * FaviconImage.cornerRatio).addClip()
+            source.draw(in: rect)
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 }

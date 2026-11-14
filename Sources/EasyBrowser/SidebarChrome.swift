@@ -103,7 +103,16 @@ struct AddressCard: View {
                     .lineLimit(1)
                 if let address = address(tab) {
                     HStack(spacing: 3) {
-                        if tab?.url?.scheme == "https" {
+                        if let port = LocalDevelopment.isEnabled ? LocalDevelopment.portLabel(tab?.url) : nil {
+                            // Локальный сервер: значок и порт, чтобы не путать вкладки разработки.
+                            Label(port, systemImage: "hammer.fill")
+                                .labelStyle(.titleAndIcon)
+                                .font(.system(size: 8 * tabScale, weight: .bold).monospacedDigit())
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4)
+                                .background(Capsule().fill(Color.orange))
+                                .help("Локальный сервер: ⌘R обновляет без кэша, вкладка не усыпляется")
+                        } else if tab?.url?.scheme == "https" {
                             Image(systemName: "lock.fill").font(.system(size: 7 * tabScale))
                         }
                         Text(address).lineLimit(1).truncationMode(.middle)
@@ -287,6 +296,11 @@ struct SidebarFooter: View {
                         tabManager.startSplitView()
                     }
                 }
+                if tabManager.modCapabilities.contains("sources") {
+                    ChromeIconButton(symbol: "books.vertical", help: "Источники · ⌘⇧S — сохранить страницу", fontSize: 11 * tabScale) {
+                        SourcesWindow.show(for: tabManager)
+                    }
+                }
                 ChromeIconButton(symbol: "clock.arrow.circlepath", help: "История и аккаунты (⌘Y)", fontSize: 11 * tabScale) {
                     LibraryWindow.show(.history, for: tabManager)
                 }
@@ -294,13 +308,69 @@ struct SidebarFooter: View {
                                  help: "Загрузки (⌥⌘L)", fontSize: 11 * tabScale, active: downloads.activeCount > 0) {
                     LibraryWindow.show(.downloads, for: tabManager)
                 }
-                ChromeIconButton(symbol: "plus", help: "Новая вкладка (⌘T)", fontSize: 11 * tabScale) {
-                    NotificationCenter.default.post(name: .createHomeTab, object: tabManager.hostWindow ?? NSApp.keyWindow)
-                }
+                NewItemMenu(fontSize: 11 * tabScale)
             }
             .padding(.horizontal, 8)
             .frame(height: 38 * tabScale)
         }
+    }
+}
+
+/// «+» внизу панели: новая вкладка уже есть строкой в списке, поэтому здесь — выбор,
+/// что создать: вкладку, папку (обычную или в закреплённых), разделение экрана, окно.
+struct NewItemMenu: View {
+    var fontSize: CGFloat = 11
+    /// Клик сразу создаёт вкладку, меню — по удержанию (для верхней полосы, где нет строки «Новая вкладка»).
+    var clickCreatesTab = false
+    @Environment(TabManager.self) private var tabManager: TabManager
+    @State private var hovering = false
+
+    var body: some View {
+        Group {
+            if clickCreatesTab {
+                Menu { items } label: { label } primaryAction: { newTab() }
+            } else {
+                Menu { items } label: { label }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { hovering = $0 }
+        .help(clickCreatesTab ? "Новая вкладка (⌘T) · удерживайте — папка, разделение экрана" : "Создать: вкладку, папку, окно")
+    }
+
+    private var label: some View {
+        Image(systemName: "plus")
+            .font(.system(size: fontSize, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: fontSize * 2.2, height: fontSize * 2.2)
+            .background(Color.primary.opacity(hovering ? 0.08 : 0), in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var items: some View {
+        Button { newTab() } label: { Label("Новая вкладка  ⌘T", systemImage: "plus.square") }
+        Button { tabManager.createFolder() } label: { Label("Новая папка", systemImage: "folder.badge.plus") }
+            .disabled(!tabManager.tree.canCreateFolder(in: .regularRoot))
+        Button { tabManager.createFolder(zone: .pinned) } label: { Label("Новая папка в закреплённых", systemImage: "pin") }
+            .disabled(!tabManager.tree.canCreateFolder(in: .pinnedRoot))
+        if tabManager.modCapabilities.contains("splitView") {
+            Button { tabManager.startSplitView() } label: { Label("Разделить экран", systemImage: "rectangle.split.2x1") }
+                .disabled(tabManager.activeTab?.url == nil)
+        }
+        Divider()
+        Button { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() } label: {
+            Label("Новое окно  ⇧⌘N", systemImage: "macwindow.badge.plus")
+        }
+        Button { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true) } label: {
+            Label("Окно инкогнито  ⇧⌘P", systemImage: "eyeglasses")
+        }
+    }
+
+    private func newTab() {
+        NotificationCenter.default.post(name: .createHomeTab, object: tabManager.hostWindow ?? NSApp.keyWindow)
     }
 }
 

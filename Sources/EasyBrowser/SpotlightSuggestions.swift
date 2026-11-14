@@ -47,8 +47,8 @@ final class SpotlightSuggestionEngine {
         lastQuery = query
         remoteTask?.cancel()
         guard !query.isEmpty else {
-            items = []
             remote = []
+            items = Self.recentTabs(manager: manager)
             return
         }
         items = buildLocal(query, manager: manager)
@@ -61,6 +61,26 @@ final class SpotlightSuggestionEngine {
             self.remote = suggestions
             self.items = self.buildLocal(query, manager: manager)
         }
+    }
+
+    /// Пустое поле: недавние вкладки, чтобы по ним можно было пройти стрелками, как в Arc.
+    func showRecentTabs(manager: TabManager) {
+        remoteTask?.cancel()
+        remote = []
+        lastQuery = ""
+        items = Self.recentTabs(manager: manager)
+    }
+
+    private static func recentTabs(manager: TabManager) -> [SpotlightSuggestion] {
+        manager.tabs
+            .filter { $0.id != manager.activeTabID && $0.url != nil }
+            .sorted { $0.lastActiveAt > $1.lastActiveAt }
+            .prefix(8)
+            .map { tab in
+                SpotlightSuggestion(kind: .tab(tab.id), title: tab.title.isEmpty ? shortURL(tab.url!) : tab.title,
+                                    subtitle: "Недавняя вкладка · \(tab.url.map(shortURL) ?? "")",
+                                    symbol: "square.on.square", url: tab.url)
+            }
     }
 
     static var remoteEnabled: Bool { UserDefaults.standard.object(forKey: "searchSuggestions") as? Bool ?? true }

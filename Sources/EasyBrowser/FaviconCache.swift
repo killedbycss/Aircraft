@@ -15,6 +15,7 @@ final class FaviconCache {
     @ObservationIgnored private var colors: [String: NSColor] = [:]
     @ObservationIgnored private var missing: Set<String> = []
     @ObservationIgnored private var inFlight: Set<String> = []
+    @ObservationIgnored private var traitsByKey: [String: FaviconTraits] = [:]
 
     private static var folder: URL { AircraftPaths.ensure(AircraftPaths.root.appendingPathComponent("Favicons", isDirectory: true)) }
 
@@ -47,6 +48,7 @@ final class FaviconCache {
         guard let key = Self.key(for: url) else { return }
         images[key] = image
         colors[key] = nil
+        traitsByKey[key] = nil
         missing.remove(key)
         revision += 1
         let target = Self.file(for: key)
@@ -70,6 +72,15 @@ final class FaviconCache {
                 return
             }
         }
+    }
+
+    /// Форма и яркость значка: считаются один раз на сайт (или на картинку без адреса).
+    func traits(of image: NSImage, url: URL?) -> FaviconTraits {
+        let key = Self.key(for: url) ?? "image:\(ObjectIdentifier(image).hashValue)"
+        if let cached = traitsByKey[key] { return cached }
+        let traits = FaviconTraits.analyze(image)
+        traitsByKey[key] = traits
+        return traits
     }
 
     /// Средний насыщенный цвет значка — для обводки плиток, как в Arc.
@@ -122,11 +133,64 @@ final class FaviconCache {
     }
 }
 
+/// Что видно по пикселям значка.
+struct FaviconTraits: Equatable {
+    /// Углы непрозрачные — квадратный значок «под обрез», его скругляем.
+    /// У значков с прозрачным фоном своя форма (круг, логотип), их не обрезаем.
+    var fullBleed = false
+    /// Тёмный значок на прозрачном фоне — пропадает на тёмной панели.
+    var darkOnClear = false
+    /// Белый значок на прозрачном фоне — пропадает на светлой панели.
+    var lightOnClear = false
+
+    func needsPlate(in scheme: ColorScheme) -> Bool {
+        scheme == .dark ? darkOnClear : lightOnClear
+    }
+
+    static func analyze(_ image: NSImage) -> FaviconTraits {
+        let side = 32
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return .init() }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        NSGraphicsContext.restoreGraphicsState()
+
+        func alpha(_ x: Int, _ y: Int) -> CGFloat { rep.colorAt(x: x, y: y)?.alphaComponent ?? 0 }
+        let corners = [(1, 1), (side - 2, 1), (1, side - 2), (side - 2, side - 2)]
+        let cornerAlpha = corners.map { alpha($0.0, $0.1) }.reduce(0, +) / CGFloat(corners.count)
+
+        var opaque = 0
+        var clear = 0
+        var luminance: CGFloat = 0
+        for x in 0..<side {
+            for y in 0..<side {
+                guard let color = rep.colorAt(x: x, y: y) else { continue }
+                if color.alphaComponent < 0.2 { clear += 1; continue }
+                guard color.alphaComponent > 0.5 else { continue }
+                opaque += 1
+                luminance += 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent
+            }
+        }
+        var traits = FaviconTraits()
+        traits.fullBleed = cornerAlpha > 0.6
+        guard opaque > 0 else { return traits }
+        let mean = luminance / CGFloat(opaque)
+        let transparentBackground = !traits.fullBleed && CGFloat(clear) / CGFloat(side * side) > 0.15
+        traits.darkOnClear = transparentBackground && mean < 0.22
+        traits.lightOnClear = transparentBackground && mean > 0.9
+        return traits
+    }
+}
+
 /// Значок сайта: из вкладки, из кэша или буква сайта на цветной подложке.
 struct FaviconImage: View {
     var url: URL?
     var image: NSImage?
     let size: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
     private var cache: FaviconCache { .shared }
     static let cornerRatio: CGFloat = 0.24
 
@@ -141,16 +205,28 @@ struct FaviconImage: View {
         self.size = size
     }
 
+    private var corner: CGFloat { size * Self.cornerRatio }
+
     var body: some View {
         let _ = cache.revision
         Group {
             if let resolved = image ?? cache.image(for: url) {
-                // Одинаковое скругление для всех значков: квадратные фавиконы не торчат углами.
+                let traits = cache.traits(of: resolved, url: url)
+                let plate = traits.needsPlate(in: colorScheme)
                 Image(nsImage: resolved).resizable().interpolation(.high).scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: size * Self.cornerRatio, style: .continuous))
-            } else if let letter = FaviconCache.key(for: url)?.first {
-                RoundedRectangle(cornerRadius: size * Self.cornerRatio, style: .continuous)
-                    .fill(Color(hue: Double(FaviconCache.key(for: url)!.unicodeScalars.reduce(0) { ($0 * 31 + Int($1.value)) % 360 }) / 360,
+                    .padding(plate ? size * 0.12 : 0)
+                    .frame(width: size, height: size)
+                    .background {
+                        if plate {
+                            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.78))
+                        }
+                    }
+                    // Скругляем только квадратные значки «под обрез» и значки на подложке.
+                    .clipShape(RoundedRectangle(cornerRadius: traits.fullBleed || plate ? corner : 0, style: .continuous))
+            } else if let key = FaviconCache.key(for: url), let letter = key.first {
+                RoundedRectangle(cornerRadius: corner, style: .continuous)
+                    .fill(Color(hue: Double(key.unicodeScalars.reduce(0) { ($0 * 31 + Int($1.value)) % 360 }) / 360,
                                 saturation: 0.45, brightness: 0.8))
                     .overlay(Text(String(letter).uppercased())
                         .font(.system(size: size * 0.6, weight: .bold, design: .rounded))
