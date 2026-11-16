@@ -15,6 +15,12 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
+        // Раньше «закреплена» хранилась отдельно; теперь это «Скрывать панель: никогда».
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "tabBarPinned") != nil {
+            if defaults.bool(forKey: "tabBarPinned") { defaults.set("never", forKey: PanelVisibility.modeKey) }
+            defaults.removeObject(forKey: "tabBarPinned")
+        }
         // Панели вкладок снизу больше нет — переносим её наверх.
         if UserDefaults.standard.string(forKey: "tabPosition") == "bottom" {
             UserDefaults.standard.set("top", forKey: "tabPosition")

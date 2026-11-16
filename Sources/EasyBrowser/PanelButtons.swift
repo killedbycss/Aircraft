@@ -96,6 +96,22 @@ enum PanelButton: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Видна ли панель вкладок. Источник один — настройка «Скрывать панель»: «Никогда» — панель
+/// закреплена, «Всегда» — скрыта, «Только в оконном режиме» — видна в полноэкранном режиме.
+/// Кнопка «Закрепить / скрыть» (⌃⌥S) меняет эту же настройку.
+enum PanelVisibility {
+    static let modeKey = "topBarHideMode"
+
+    static func isShown(mode: String, fullScreen: Bool) -> Bool {
+        mode == "never" || (mode == "windowed" && fullScreen)
+    }
+
+    /// Открепить → «Скрывать всегда», закрепить → «Скрывать никогда».
+    static func toggled(mode: String, fullScreen: Bool) -> String {
+        isShown(mode: mode, fullScreen: fullScreen) ? "always" : "never"
+    }
+}
+
 /// Ряд выбранных кнопок, затем — профиль. `compactProfile` — только аватар (для полосы сверху).
 struct PanelButtonsRow: View {
     var compactProfile = false
@@ -127,7 +143,7 @@ struct PanelButtonView: View {
     let button: PanelButton
     let fontSize: CGFloat
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabBarPinned") private var panelPinned = true
+    @AppStorage(PanelVisibility.modeKey) private var panelHideMode = "always"
     @AppStorage("tabPosition") private var tabPosition = "left"
     @State private var copied = false
     private var downloads: DownloadStore { .shared }
@@ -136,7 +152,7 @@ struct PanelButtonView: View {
         switch button {
         case .togglePanel:
             ChromeIconButton(symbol: togglePanelSymbol,
-                             help: (panelPinned ? "Скрыть панель вкладок" : "Закрепить панель вкладок") + " (⌃⌥S)",
+                             help: (panelShown ? "Открепить и скрыть панель вкладок" : "Закрепить панель вкладок") + " (⌃⌥S)",
                              fontSize: fontSize) {
                 NotificationCenter.default.post(name: .toggleSidebar, object: tabManager.hostWindow ?? NSApp.keyWindow)
             }
@@ -193,8 +209,12 @@ struct PanelButtonView: View {
         }
     }
 
+    private var panelShown: Bool {
+        PanelVisibility.isShown(mode: panelHideMode, fullScreen: tabManager.hostWindow?.styleMask.contains(.fullScreen) ?? false)
+    }
+
     private var togglePanelSymbol: String {
-        guard panelPinned else { return "pin" }
+        guard panelShown else { return "pin" }
         switch tabPosition {
         case "right": return "sidebar.right"
         case "top": return "rectangle.topthird.inset.filled"

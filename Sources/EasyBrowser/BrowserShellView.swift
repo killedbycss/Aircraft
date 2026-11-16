@@ -11,8 +11,9 @@ public enum ViewState: String, Codable {
 public struct BrowserShellView: View {
     @Environment(TabManager.self) private var tabManager: TabManager
     @State private var currentState: ViewState = .workspace
-    /// Закреплена ли панель вкладок (⌃⌥S) — сохраняется между запусками.
-    @AppStorage("tabBarPinned") private var sidebarVisible: Bool = true
+    /// Закреплена ли панель вкладок — это настройка «Скрывать панель» в положении «Никогда».
+    /// ⌃⌥S и кнопка «Закрепить / скрыть» переключают её между «Никогда» и «Всегда».
+    @AppStorage(PanelVisibility.modeKey) private var panelHideMode: String = "always"
     @State private var showSearchModal: Bool = false
     @State private var spotlightSeed: String = ""
     @State private var spotlightRequestID = UUID()
@@ -49,7 +50,8 @@ public struct BrowserShellView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { notification in
             guard isTargetWindow(notification) else { return }
-            sidebarVisible.toggle()
+            let fullScreen = (notification.object as? NSWindow)?.styleMask.contains(.fullScreen) ?? false
+            panelHideMode = PanelVisibility.toggled(mode: panelHideMode, fullScreen: fullScreen)
         }
         .onReceive(NotificationCenter.default.publisher(for: .showWorkspace)) { notification in
             guard isTargetWindow(notification) else { return }
@@ -136,7 +138,8 @@ public struct BrowserShellView: View {
                     HomeView(currentState: $currentState, showSearchModal: $showSearchModal)
                 case .workspace, .settings:
                     WorkspaceView(
-                        sidebarVisible: $sidebarVisible,
+                        sidebarVisible: Binding(get: { panelHideMode == "never" },
+                                                set: { panelHideMode = $0 ? "never" : "always" }),
                         showSearchModal: $showSearchModal,
                         tabGroupsEnabled: tabGroupsEnabled,
                         tabPosition: tabPosition,
@@ -711,7 +714,7 @@ public struct SettingsView: View {
                     Text("Никогда").tag("never")
                 }
                 LabeledContent("Показать или скрыть", value: "⌃⌥S")
-                Text("Относится к незакреплённой панели слева, справа и сверху. Скрытая панель сама выезжает, когда курсор подходит к краю окна, и видна, пока открыт Spotlight.")
+                Text("Для панели слева, справа и сверху. Кнопка «Закрепить / скрыть» и ⌃⌥S переключают эту настройку: открепить — «Всегда», закрепить — «Никогда». Скрытая панель сама выезжает, когда курсор подходит к краю окна, и видна, пока открыт Spotlight.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -1677,7 +1680,7 @@ public struct WorkspaceView: View {
             updateWindowButtons()
         }
         .onDisappear { setWindowButtonsHidden(false) }
-        .onChange(of: sidebarVisible) { _, _ in
+        .onChange(of: topBarHideMode) { _, _ in
             // ⌃⌥S в узком окне открывает и закрывает выезжающие вкладки.
             if isCompact { mobileTabsOpen.toggle() }
             hoverHideTask?.cancel()
