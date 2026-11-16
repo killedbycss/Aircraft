@@ -150,7 +150,19 @@ private struct NativeWindowButtons: NSViewRepresentable {
     final class ButtonGroupView: NSView {
         private let buttons: [NSButton]
         private var mouseInside = false
-        private static let step: CGFloat = 20
+
+        /// Отступы кнопок друг от друга — как их раскладывает сама macOS в заголовке окна
+        /// (в macOS 26 шаг 23 pt). Берём из невидимого окна, чтобы совпадало с любой версией.
+        private static let offsets: [CGFloat] = {
+            let probe = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                 backing: .buffered, defer: true)
+            probe.contentView?.superview?.layoutSubtreeIfNeeded()
+            let xs = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+                .compactMap { probe.standardWindowButton($0)?.frame.minX }
+            guard xs.count == 3, xs[2] > xs[0] else { return [0, 23, 46] }
+            return xs.map { $0 - xs[0] }
+        }()
 
         override init(frame: NSRect) {
             let mask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullScreen]
@@ -164,7 +176,7 @@ private struct NativeWindowButtons: NSViewRepresentable {
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
         override var intrinsicContentSize: NSSize {
-            NSSize(width: Self.step * 2 + (buttons.last?.frame.width ?? 14), height: buttons.first?.frame.height ?? 16)
+            NSSize(width: (Self.offsets.last ?? 46) + (buttons.last?.frame.width ?? 14), height: buttons.first?.frame.height ?? 14)
         }
 
         override func layout() {
@@ -172,7 +184,7 @@ private struct NativeWindowButtons: NSViewRepresentable {
             let size = intrinsicContentSize
             let originX = ((bounds.width - size.width) / 2).rounded()
             for (index, button) in buttons.enumerated() {
-                button.setFrameOrigin(NSPoint(x: originX + CGFloat(index) * Self.step,
+                button.setFrameOrigin(NSPoint(x: originX + Self.offsets[min(index, Self.offsets.count - 1)],
                                               y: ((bounds.height - button.frame.height) / 2).rounded()))
             }
         }
