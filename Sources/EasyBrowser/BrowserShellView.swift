@@ -1749,7 +1749,9 @@ public struct WorkspaceView: View {
         let hide = tabGroupsEnabled && tabBarHidden && !isFullScreen
             && !hoverRevealed && !showSearchModal
             && (hostWindow.window?.frame.width ?? 0) >= 600
-        setWindowButtonsHidden(hide)
+        // В полноэкранном режиме кнопки окна рисуем сами на панели (`WindowControlsSlot`),
+        // системные прячем всегда — чтобы не было двух «светофоров».
+        setWindowButtonsHidden(hide || isFullScreen)
         if let window = hostWindow.window { WindowButtonLayout.apply(windowButtonPlacement, to: window) }
     }
 

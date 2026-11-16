@@ -83,11 +83,12 @@ enum WindowButtonLayout {
 
 /// В полноэкранном режиме macOS по наведению к верху экрана выдвигает меню вместе с заголовком
 /// окна и его кнопками — они ложатся поверх панели вкладок, и до вкладок не дотянуться.
-/// Поэтому в полноэкранном окне прячем меню совсем, а кнопки окна рисуем сами,
-/// прямо на панели вкладок (`WindowControlsSlot`).
+/// Поэтому в полноэкранном окне прячем меню совсем, а системные кнопки окна ставим
+/// прямо на панель вкладок (`WindowControlsSlot`).
 @MainActor
 enum FullScreenChrome {
     private static var observers: [NSObjectProtocol] = []
+    private static var optionsObservation: NSKeyValueObservation?
 
     static func install() {
         guard observers.isEmpty else { return }
@@ -97,6 +98,11 @@ enum FullScreenChrome {
                 let window = note.object as? NSWindow
                 MainActor.assumeIsolated { hideMenuBarIfNeeded(window) }
             })
+        }
+        // SwiftUI сразу после входа в полноэкранный режим возвращает свои параметры показа
+        // (меню снова выезжает по наведению) — поэтому следим за ними и ставим наши ещё раз.
+        optionsObservation = NSApp.observe(\.presentationOptions) { _, _ in
+            DispatchQueue.main.async { hideMenuBarIfNeeded(NSApp.keyWindow) }
         }
     }
 
@@ -109,8 +115,9 @@ enum FullScreenChrome {
     }
 }
 
-/// Место под кнопки окна на панели вкладок. В обычном окне пустое — там стоят системные
-/// кнопки (`WindowButtonLayout`); в полноэкранном — свои кнопки, системные там недоступны.
+/// Место под кнопки окна на панели вкладок. В обычном окне пустое — там стоят кнопки
+/// из заголовка окна (`WindowButtonLayout`); в полноэкранном заголовок спрятан, поэтому
+/// здесь стоят такие же системные кнопки, созданные отдельно.
 struct WindowControlsSlot: View {
     var width: CGFloat
     var height: CGFloat? = nil
@@ -119,8 +126,8 @@ struct WindowControlsSlot: View {
 
     var body: some View {
         ZStack {
-            if isFullScreen, let window {
-                WindowControlButtons(window: window)
+            if isFullScreen {
+                NativeWindowButtons(width: width)
             }
         }
         .frame(width: width, height: height)
@@ -152,48 +159,65 @@ private struct SlotWindowReader: NSViewRepresentable {
     }
 }
 
-/// Закрыть / свернуть / выйти из полноэкранного режима — как системный «светофор».
-/// Свернуть полноэкранное окно macOS не даёт, поэтому средняя кнопка неактивна, как у системы.
-private struct WindowControlButtons: View {
-    let window: NSWindow
-    @State private var hovering = false
-    @State private var isKey = true
+/// Системные «закрыть / свернуть / развернуть» (`NSWindow.standardWindowButton(_:for:)`) —
+/// те же кнопки, что в заголовке: вид, подсветка неактивного окна, действия. Зелёная выводит
+/// из полноэкранного режима, «свернуть» в нём неактивна, как у системы.
+private struct NativeWindowButtons: NSViewRepresentable {
+    let width: CGFloat
 
-    var body: some View {
-        HStack(spacing: 8) {
-            light(Color(red: 1.0, green: 0.37, blue: 0.34), symbol: "xmark", help: "Закрыть окно") {
-                window.performClose(nil)
-            }
-            light(nil, symbol: "minus", help: "Свернуть недоступно в полноэкранном режиме") {}
-                .disabled(true)
-            light(Color(red: 0.16, green: 0.78, blue: 0.25), symbol: "arrow.down.right.and.arrow.up.left",
-                  help: "Выйти из полноэкранного режима") {
-                window.toggleFullScreen(nil)
-            }
-        }
-        .onHover { hovering = $0 }
-        .onAppear { isKey = window.isKeyWindow }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification, object: window)) { _ in isKey = true }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification, object: window)) { _ in isKey = false }
+    func makeNSView(context: Context) -> ButtonGroupView { ButtonGroupView() }
+
+    func updateNSView(_ nsView: ButtonGroupView, context: Context) {
+        nsView.needsLayout = true
     }
 
-    private func light(_ color: Color?, symbol: String, help: String, action: @escaping () -> Void) -> some View {
-        let active = color != nil && (isKey || hovering)
-        return Button(action: action) {
-            Circle()
-                .fill(active ? color! : Color.primary.opacity(0.18))
-                .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5))
-                .overlay {
-                    if hovering && color != nil {
-                        Image(systemName: symbol)
-                            .font(.system(size: 7, weight: .bold))
-                            .foregroundStyle(Color.black.opacity(0.55))
-                    }
-                }
-                .frame(width: 12, height: 12)
-                .contentShape(Circle())
+    /// Контейнер кнопок. `_mouseInGroup:` спрашивают сами кнопки, чтобы показать значки
+    /// (×, −, стрелки) при наведении на всю группу — как в заголовке окна.
+    final class ButtonGroupView: NSView {
+        private let buttons: [NSButton]
+        private var mouseInside = false
+        private static let step: CGFloat = 20
+
+        override init(frame: NSRect) {
+            let mask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullScreen]
+            buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+                .compactMap { NSWindow.standardWindowButton($0, for: mask) }
+            super.init(frame: frame)
+            buttons.forEach(addSubview)
+            buttons.dropFirst().first?.isEnabled = false   // свернуть полноэкранное окно нельзя
         }
-        .buttonStyle(.plain)
-        .help(help)
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: Self.step * 2 + (buttons.last?.frame.width ?? 14), height: buttons.first?.frame.height ?? 16)
+        }
+
+        override func layout() {
+            super.layout()
+            let size = intrinsicContentSize
+            let originX = ((bounds.width - size.width) / 2).rounded()
+            for (index, button) in buttons.enumerated() {
+                button.setFrameOrigin(NSPoint(x: originX + CGFloat(index) * Self.step,
+                                              y: ((bounds.height - button.frame.height) / 2).rounded()))
+            }
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                           owner: self))
+        }
+
+        override func mouseEntered(with event: NSEvent) { setMouseInside(true) }
+        override func mouseExited(with event: NSEvent) { setMouseInside(false) }
+
+        private func setMouseInside(_ value: Bool) {
+            mouseInside = value
+            buttons.forEach { $0.needsDisplay = true }
+        }
+
+        @objc func _mouseInGroup(_ button: NSButton) -> Bool { mouseInside }
     }
 }
