@@ -82,69 +82,58 @@ enum WindowButtonLayout {
 // MARK: - Полноэкранный режим
 
 /// В полноэкранном режиме macOS по наведению к верху экрана выдвигает меню, а вместе с ним —
-/// заголовок окна со «светофором». Меню оставляем, а заголовок ложится поверх панели вкладок.
-/// Поэтому, пока панель вкладок видна, кнопки окна стоят прямо на ней (`WindowControlsSlot`),
-/// а системный заголовок невидим и пропускает клики. Когда панель скрыта — заголовок обычный,
-/// чтобы кнопки окна были доступны.
+/// заголовок окна со «светофором», который ложится поверх панели вкладок. Меню оставляем,
+/// а системный заголовок в полноэкранном режиме прячем совсем: кнопки окна стоят на самой
+/// панели вкладок (`WindowControlsSlot`).
 @MainActor
 enum FullScreenChrome {
-    /// Вызывается регулярно (AppKit сам возвращает заголовку видимость при каждом показе меню).
+    /// Вызывается регулярно — на случай, если AppKit вернёт заголовок при показе меню.
     static func setSystemTitlebarHidden(_ hidden: Bool, in window: NSWindow) {
         let hidden = hidden && window.styleMask.contains(.fullScreen)
         // Кнопки заголовка и их контейнер — в самом окне; спрятанный вид не ловит клики.
         if let container = window.standardWindowButton(.closeButton)?.superview?.superview, container.isHidden != hidden {
             container.isHidden = hidden
         }
-        // Фон выезжающего заголовка — отдельное дочернее окно.
+        // Фон выезжающего заголовка — отдельное дочернее окно: прячем его содержимое
+        // и пропускаем клики сквозь него к панели вкладок.
         for child in window.childWindows ?? [] where String(describing: type(of: child)).contains("FullScreen") {
-            let alpha: CGFloat = hidden ? 0 : 1
-            if child.alphaValue != alpha { child.alphaValue = alpha }
+            if let content = child.contentView, content.isHidden != hidden { content.isHidden = hidden }
             if child.ignoresMouseEvents != hidden { child.ignoresMouseEvents = hidden }
         }
     }
 }
 
-/// Место под кнопки окна на панели вкладок. В обычном окне пустое — там стоят кнопки
-/// из заголовка окна (`WindowButtonLayout`); в полноэкранном заголовок уезжает вверх вместе
-/// с меню, поэтому здесь стоят такие же системные кнопки, созданные отдельно.
-struct WindowControlsSlot: View {
-    var width: CGFloat
-    var height: CGFloat? = nil
-    @State private var window: NSWindow?
-    @State private var isFullScreen = false
+private struct WindowIsFullScreenKey: EnvironmentKey {
+    static let defaultValue = false
+}
 
-    var body: some View {
-        ZStack {
-            if isFullScreen {
-                NativeWindowButtons(width: width)
-            }
-        }
-        .frame(width: width, height: height)
-        .background(SlotWindowReader { found in
-            if window !== found { window = found }
-            updateFullScreen()
-        })
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in updateFullScreen() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in updateFullScreen() }
-    }
-
-    private func updateFullScreen() {
-        let value = window?.styleMask.contains(.fullScreen) ?? false
-        if value != isFullScreen { isFullScreen = value }
+extension EnvironmentValues {
+    /// Окно с этим видом сейчас в полноэкранном режиме (ставит `WorkspaceView`).
+    var windowIsFullScreen: Bool {
+        get { self[WindowIsFullScreenKey.self] }
+        set { self[WindowIsFullScreenKey.self] = newValue }
     }
 }
 
-private struct SlotWindowReader: NSViewRepresentable {
-    let onWindow: @MainActor (NSWindow?) -> Void
+/// Место под кнопки окна на панели вкладок. В обычном окне пустое — там стоят кнопки
+/// из заголовка окна (`WindowButtonLayout`); в полноэкранном системный заголовок спрятан,
+/// поэтому здесь стоят такие же системные кнопки, созданные отдельно.
+/// `onlyInFullScreen` — в обычном окне места не занимать (панель справа).
+struct WindowControlsSlot: View {
+    var width: CGFloat
+    var height: CGFloat? = nil
+    var onlyInFullScreen = false
+    @Environment(\.windowIsFullScreen) private var isFullScreen
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { onWindow(view.window) }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { onWindow(nsView.window) }
+    var body: some View {
+        if isFullScreen || !onlyInFullScreen {
+            ZStack {
+                if isFullScreen {
+                    NativeWindowButtons()
+                }
+            }
+            .frame(width: width, height: height)
+        }
     }
 }
 
@@ -152,8 +141,6 @@ private struct SlotWindowReader: NSViewRepresentable {
 /// те же кнопки, что в заголовке: вид, подсветка неактивного окна, действия. Зелёная выводит
 /// из полноэкранного режима, «свернуть» в нём неактивна, как у системы.
 private struct NativeWindowButtons: NSViewRepresentable {
-    let width: CGFloat
-
     func makeNSView(context: Context) -> ButtonGroupView { ButtonGroupView() }
 
     func updateNSView(_ nsView: ButtonGroupView, context: Context) {

@@ -1669,6 +1669,7 @@ public struct WorkspaceView: View {
         }
         }
         .chromeBackground()
+        .environment(\.windowIsFullScreen, isFullScreen)
         .background(HostWindowReader(ref: hostWindow))
         .onReceive(edgeHoverTimer) { _ in
             // В фоне и в свёрнутом окне проверки не нужны — не будим главный поток зря.
@@ -1751,12 +1752,9 @@ public struct WorkspaceView: View {
             && (hostWindow.window?.frame.width ?? 0) >= 600
         setWindowButtonsHidden(hide)
         guard let window = hostWindow.window else { return }
-        // Полноэкранный режим: пока видна панель с кнопками окна (слева или сверху), системный
-        // заголовок, который выезжает вместе с меню, не должен её закрывать.
-        let panelHasWindowButtons = isFullScreen && tabGroupsEnabled && !isCompact
-            && (tabPosition == "left" || tabPosition == "top")
-            && (!tabBarHidden || hoverRevealed || showSearchModal)
-        FullScreenChrome.setSystemTitlebarHidden(panelHasWindowButtons, in: window)
+        // Полноэкранный режим: системный заголовок, который выезжает вместе с меню, прячем —
+        // кнопки окна стоят на самой панели вкладок.
+        FullScreenChrome.setSystemTitlebarHidden(isFullScreen && tabGroupsEnabled, in: window)
         WindowButtonLayout.apply(windowButtonPlacement, to: window)
     }
 
@@ -2316,6 +2314,8 @@ public struct SidebarView: View {
                     NavigationArrows(fontSize: 11 * tabScale)
                     ReloadPageButton(fontSize: 11 * tabScale)
                 } else {
+                    // Справа кнопки окна нужны только в полноэкранном режиме — в окне они слева.
+                    WindowControlsSlot(width: 70, onlyInFullScreen: true)
                     NavigationArrows(fontSize: 11 * tabScale)
                     ReloadPageButton(fontSize: 11 * tabScale)
                     Spacer(minLength: 0)
