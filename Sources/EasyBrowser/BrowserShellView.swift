@@ -918,7 +918,7 @@ public struct SettingsView: View {
     private var shortcutsPane: some View {
         Form {
             Section("Вкладки") {
-                LabeledContent("Новая вкладка", value: "⌘T  ·  ⌘N")
+                LabeledContent("Новая вкладка", value: "⌘T")
                 LabeledContent("Закрыть вкладку", value: "⌘W")
                 LabeledContent("Вернуть закрытую вкладку", value: "⌘⇧T")
                 LabeledContent("Предыдущая / следующая вкладка", value: "⌥←  ·  ⌥→")
@@ -958,8 +958,8 @@ public struct SettingsView: View {
                 LabeledContent("Загрузки", value: "⌥⌘L")
             }
             Section("Окно и профили") {
-                LabeledContent("Новое окно", value: "⌘⇧N")
-                LabeledContent("Окно инкогнито", value: "⌘⇧P")
+                LabeledContent("Новое окно", value: "⌘N")
+                LabeledContent("Окно инкогнито", value: "⌘⇧N")
                 LabeledContent("Профиль по номеру", value: "⌃1 … ⌃9")
                 LabeledContent("Открыть файл", value: "⌘O")
                 LabeledContent("Настройки", value: "⌘,")

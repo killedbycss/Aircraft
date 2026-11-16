@@ -193,9 +193,9 @@ struct PanelButtonView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
             }
         case .newWindow:
-            icon(button.symbol, "Новое окно (⇧⌘N)") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() }
+            icon(button.symbol, "Новое окно (⌘N)") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() }
         case .incognitoWindow:
-            icon(button.symbol, "Окно инкогнито (⇧⌘P)") {
+            icon(button.symbol, "Окно инкогнито (⇧⌘N)") {
                 (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true)
             }
         case .settings:

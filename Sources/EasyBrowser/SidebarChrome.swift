@@ -337,10 +337,10 @@ struct NewItemMenu: View {
         }
         Divider()
         Button { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() } label: {
-            Label("Новое окно  ⇧⌘N", systemImage: "macwindow.badge.plus")
+            Label("Новое окно  ⌘N", systemImage: "macwindow.badge.plus")
         }
         Button { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true) } label: {
-            Label("Окно инкогнито  ⇧⌘P", systemImage: "eyeglasses")
+            Label("Окно инкогнито  ⇧⌘N", systemImage: "eyeglasses")
         }
     }
 
@@ -386,7 +386,7 @@ struct ProfileSwitcher: View {
                     }
                     Divider()
                     Button("Новый профиль…") { ProfileBar.createProfile(in: tabManager) }
-                    Button("Окно инкогнито (⌘⇧P)") {
+                    Button("Окно инкогнито (⌘⇧N)") {
                         (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true)
                     }
                     Divider()

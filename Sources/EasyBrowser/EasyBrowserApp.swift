@@ -81,6 +81,8 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
             if let command = self?.browserCommand(for: event, modifiers: modifiers, window: target) {
                 if command == "newIncognitoWindow" {
                     self?.openNewBrowserWindow(incognito: true)
+                } else if command == "newWindow" {
+                    self?.openNewBrowserWindow()
                 } else {
                     NotificationCenter.default.post(name: .browserCommand, object: target, userInfo: ["command": command])
                 }
@@ -196,7 +198,9 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
         case (2, [.command]): return "addBookmark"                // ⌘D
         case (11, [.command, .shift]): return "showBookmarks"     // ⌘⇧B
         case (16, [.command]): return "showHistory"               // ⌘Y
-        case (35, [.command, .shift]): return "newIncognitoWindow" // ⌘⇧P
+        // По физической клавише N — работает и в русской раскладке.
+        case (45, [.command]): return "newWindow"                  // ⌘N
+        case (45, [.command, .shift]): return "newIncognitoWindow" // ⌘⇧N
         case (31, [.command]): return "openFile"                  // ⌘O
         case (1, [.command, .shift]):                              // ⌘⇧S — в «Источники», если мод установлен
             guard let window, AgentBrowser.manager(for: window)?.modCapabilities.contains("sources") == true else { return nil }
@@ -386,11 +390,11 @@ struct EasyBrowserApp: App {
                 Button("Новая вкладка") {
                     NotificationCenter.default.post(name: .createHomeTab, object: NSApp.keyWindow)
                 }
-                .keyboardShortcut("n", modifiers: [.command])
+                .keyboardShortcut("t", modifiers: [.command])
                 Button("Новое окно") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() }
-                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .keyboardShortcut("n", modifiers: [.command])
                 Button("Новое окно инкогнито") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true) }
-                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
                 Divider()
                 Button("Открыть файл…") { browserCommand("openFile") }
                     .keyboardShortcut("o", modifiers: [.command])
