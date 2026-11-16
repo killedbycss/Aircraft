@@ -1777,7 +1777,8 @@ public struct WorkspaceView: View {
     }
 
     private func setWindowButtonsHidden(_ hidden: Bool) {
-        guard let window = hostWindow.window else { return }
+        // В полноэкранном режиме `standardWindowButton` находит кнопки на нашей панели, не трогаем их.
+        guard let window = hostWindow.window, !window.styleMask.contains(.fullScreen) else { return }
         for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let button = window.standardWindowButton(type), button.isHidden != hidden else { continue }
             button.isHidden = hidden

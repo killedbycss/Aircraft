@@ -90,12 +90,10 @@ enum FullScreenChrome {
     /// Вызывается регулярно — на случай, если AppKit вернёт заголовок при показе меню.
     static func setSystemTitlebarHidden(_ hidden: Bool, in window: NSWindow) {
         let hidden = hidden && window.styleMask.contains(.fullScreen)
-        // Кнопки заголовка и их контейнер — в самом окне; спрятанный вид не ловит клики.
-        if let container = window.standardWindowButton(.closeButton)?.superview?.superview, container.isHidden != hidden {
-            container.isHidden = hidden
-        }
-        // Фон выезжающего заголовка — отдельное дочернее окно: прячем его содержимое
-        // и пропускаем клики сквозь него к панели вкладок.
+        // В полноэкранном режиме заголовок с кнопками живёт в отдельном дочернем окне: прячем
+        // его содержимое и пропускаем клики сквозь него к панели вкладок. Через
+        // `standardWindowButton` его не найти — в полноэкранном режиме AppKit возвращает
+        // нашу же кнопку с панели вкладок.
         for child in window.childWindows ?? [] where String(describing: type(of: child)).contains("FullScreen") {
             if let content = child.contentView, content.isHidden != hidden { content.isHidden = hidden }
             if child.ignoresMouseEvents != hidden { child.ignoresMouseEvents = hidden }
