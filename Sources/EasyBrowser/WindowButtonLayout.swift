@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// Положение кнопок окна («светофора»). Стандартно они прижаты к верху заголовка высотой
 /// ~28 pt; когда сверху панель повыше (верхние вкладки, шапка боковой панели), ставим их
@@ -75,5 +76,124 @@ enum WindowButtonLayout {
 
     static func forget(_ window: NSWindow) {
         originals[ObjectIdentifier(window)] = nil
+    }
+}
+
+// MARK: - Полноэкранный режим
+
+/// В полноэкранном режиме macOS по наведению к верху экрана выдвигает меню вместе с заголовком
+/// окна и его кнопками — они ложатся поверх панели вкладок, и до вкладок не дотянуться.
+/// Поэтому в полноэкранном окне прячем меню совсем, а кнопки окна рисуем сами,
+/// прямо на панели вкладок (`WindowControlsSlot`).
+@MainActor
+enum FullScreenChrome {
+    private static var observers: [NSObjectProtocol] = []
+
+    static func install() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didBecomeKeyNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
+                let window = note.object as? NSWindow
+                MainActor.assumeIsolated { hideMenuBarIfNeeded(window) }
+            })
+        }
+    }
+
+    private static func hideMenuBarIfNeeded(_ window: NSWindow?) {
+        guard let window, window.styleMask.contains(.fullScreen) else { return }
+        let options = NSApp.presentationOptions
+        guard options.contains(.fullScreen), !options.contains(.hideMenuBar) else { return }
+        // .hideMenuBar допустим только вместе с .hideDock.
+        NSApp.presentationOptions = options.subtracting([.autoHideMenuBar, .autoHideDock]).union([.hideDock, .hideMenuBar])
+    }
+}
+
+/// Место под кнопки окна на панели вкладок. В обычном окне пустое — там стоят системные
+/// кнопки (`WindowButtonLayout`); в полноэкранном — свои кнопки, системные там недоступны.
+struct WindowControlsSlot: View {
+    var width: CGFloat
+    var height: CGFloat? = nil
+    @State private var window: NSWindow?
+    @State private var isFullScreen = false
+
+    var body: some View {
+        ZStack {
+            if isFullScreen, let window {
+                WindowControlButtons(window: window)
+            }
+        }
+        .frame(width: width, height: height)
+        .background(SlotWindowReader { found in
+            if window !== found { window = found }
+            updateFullScreen()
+        })
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in updateFullScreen() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in updateFullScreen() }
+    }
+
+    private func updateFullScreen() {
+        let value = window?.styleMask.contains(.fullScreen) ?? false
+        if value != isFullScreen { isFullScreen = value }
+    }
+}
+
+private struct SlotWindowReader: NSViewRepresentable {
+    let onWindow: @MainActor (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { onWindow(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onWindow(nsView.window) }
+    }
+}
+
+/// Закрыть / свернуть / выйти из полноэкранного режима — как системный «светофор».
+/// Свернуть полноэкранное окно macOS не даёт, поэтому средняя кнопка неактивна, как у системы.
+private struct WindowControlButtons: View {
+    let window: NSWindow
+    @State private var hovering = false
+    @State private var isKey = true
+
+    var body: some View {
+        HStack(spacing: 8) {
+            light(Color(red: 1.0, green: 0.37, blue: 0.34), symbol: "xmark", help: "Закрыть окно") {
+                window.performClose(nil)
+            }
+            light(nil, symbol: "minus", help: "Свернуть недоступно в полноэкранном режиме") {}
+                .disabled(true)
+            light(Color(red: 0.16, green: 0.78, blue: 0.25), symbol: "arrow.down.right.and.arrow.up.left",
+                  help: "Выйти из полноэкранного режима") {
+                window.toggleFullScreen(nil)
+            }
+        }
+        .onHover { hovering = $0 }
+        .onAppear { isKey = window.isKeyWindow }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification, object: window)) { _ in isKey = true }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification, object: window)) { _ in isKey = false }
+    }
+
+    private func light(_ color: Color?, symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        let active = color != nil && (isKey || hovering)
+        return Button(action: action) {
+            Circle()
+                .fill(active ? color! : Color.primary.opacity(0.18))
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5))
+                .overlay {
+                    if hovering && color != nil {
+                        Image(systemName: symbol)
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.55))
+                    }
+                }
+                .frame(width: 12, height: 12)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }

@@ -15,9 +15,14 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
+        // Панели вкладок снизу больше нет — переносим её наверх.
+        if UserDefaults.standard.string(forKey: "tabPosition") == "bottom" {
+            UserDefaults.standard.set("top", forKey: "tabPosition")
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        FullScreenChrome.install()
         for window in NSApp.windows {
             window.tabbingMode = .disallowed
             window.tabbingIdentifier = ""

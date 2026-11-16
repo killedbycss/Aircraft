@@ -56,7 +56,7 @@ struct TabTreeList: View {
     let style: TabListStyle
     var side: String = "left"
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: style == .mobile ? 6 : 2) {
@@ -145,7 +145,7 @@ private struct FolderHeader: View {
     let depth: Int
     let style: TabListStyle
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @State private var targeted = false
     @State private var draftTitle = ""
     @FocusState private var titleFocused: Bool
@@ -276,7 +276,7 @@ struct TabRow: View {
     let style: TabListStyle
     var groupColor: Color?
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @State private var hovering = false
     @State private var targeted = false
     @State private var copied = false
@@ -515,7 +515,7 @@ struct TopBarFolderChip: View {
     let folder: TabFolder
     @Environment(TabManager.self) private var tabManager: TabManager
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @State private var targeted = false
 
     var body: some View {
@@ -677,7 +677,7 @@ enum TopBarItem: Identifiable {
 struct TopBarTilesChip: View {
     let tiles: [TabModel]
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @State private var targeted = false
 
     private var activeTile: TabModel? { tiles.first { $0.id == tabManager.activeTabID } }

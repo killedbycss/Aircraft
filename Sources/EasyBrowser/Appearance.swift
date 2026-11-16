@@ -211,19 +211,23 @@ extension AircraftTheme {
         return false
     }
 
-    /// Тон стекла — цвет оформления, если он выбран.
-    static var glassTint: Color? {
-        let hex = UserDefaults.standard.string(forKey: colorKey) ?? ""
-        return color(hex: hex)
+    /// Насколько заметен тон темы на стекле: при насыщенности по умолчанию (0.55) — 1.
+    static func glassTintScale(intensity: Double) -> Double {
+        min(max(intensity, 0.05), 1) / 0.55
     }
 }
 
 private struct GlassOrBackground<S: Shape, B: View>: ViewModifier {
     let shape: S
     let tint: Color?
+    /// Тонировать цветом темы. Цвет читаем здесь через @AppStorage, а не передаём готовым:
+    /// иначе стекло не перекрашивается, пока не перерисуется весь вид, где оно стоит.
+    let themeTint: Bool
     let interactive: Bool
     let otherwise: B
     @AppStorage(AircraftTheme.liquidGlassKey) private var glass = false
+    @AppStorage(AircraftTheme.colorKey) private var themeColor = ""
+    @AppStorage(AircraftTheme.intensityKey) private var intensity = 0.55
 
     func body(content: Content) -> some View {
         if glass {
@@ -240,7 +244,11 @@ private struct GlassOrBackground<S: Shape, B: View>: ViewModifier {
     @available(macOS 26, *)
     private var glassStyle: Glass {
         var style = Glass.regular
-        if let tint { style = style.tint(tint.opacity(0.35)) }
+        if let tint {
+            style = style.tint(tint.opacity(0.35))
+        } else if themeTint, let color = AircraftTheme.color(hex: themeColor) {
+            style = style.tint(color.opacity(min(0.35 * AircraftTheme.glassTintScale(intensity: intensity), 0.7)))
+        }
         if interactive { style = style.interactive() }
         return style
     }
@@ -248,26 +256,32 @@ private struct GlassOrBackground<S: Shape, B: View>: ViewModifier {
 
 extension View {
     /// В режиме Liquid Glass — стекло нужной формы, иначе — обычный фон `otherwise`.
-    func glassOr<S: Shape, B: View>(_ shape: S, tint: Color? = nil, interactive: Bool = false,
+    /// `themeTint` — тонировать цветом темы (и перекрашивать при его смене).
+    func glassOr<S: Shape, B: View>(_ shape: S, tint: Color? = nil, themeTint: Bool = false, interactive: Bool = false,
                                     @ViewBuilder otherwise: () -> B) -> some View {
-        modifier(GlassOrBackground(shape: shape, tint: tint, interactive: interactive, otherwise: otherwise()))
+        modifier(GlassOrBackground(shape: shape, tint: tint, themeTint: themeTint, interactive: interactive, otherwise: otherwise()))
     }
 
     /// Стекло только в режиме Liquid Glass, иначе вид не меняется.
-    func glassIfEnabled<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        glassOr(shape, tint: tint, interactive: interactive) { Color.clear }
+    func glassIfEnabled<S: Shape>(_ shape: S, tint: Color? = nil, themeTint: Bool = false, interactive: Bool = false) -> some View {
+        glassOr(shape, tint: tint, themeTint: themeTint, interactive: interactive) { Color.clear }
     }
 }
 
 /// Фон окна в режиме Liquid Glass: размытый рабочий стол под окном и лёгкий тон темы.
 struct GlassWindowBackground: View {
     @Environment(\.colorScheme) private var scheme
+    @AppStorage(AircraftTheme.colorKey) private var first = ""
+    @AppStorage(AircraftTheme.secondColorKey) private var second = ""
+    @AppStorage(AircraftTheme.intensityKey) private var intensity = 0.55
 
     var body: some View {
         ZStack {
             VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow)
-            if let tint = AircraftTheme.glassTint {
-                tint.opacity(scheme == .dark ? 0.16 : 0.22)
+            if let a = AircraftTheme.color(hex: first) {
+                LinearGradient(colors: [a, AircraftTheme.color(hex: second) ?? a],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .opacity(min((scheme == .dark ? 0.16 : 0.22) * AircraftTheme.glassTintScale(intensity: intensity), 0.6))
             }
         }
     }
@@ -302,7 +316,7 @@ private struct GlassPanelModifier: ViewModifier {
     func body(content: Content) -> some View {
         if glass && !tabManager.isIncognito {
             content
-                .glassIfEnabled(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), tint: AircraftTheme.glassTint)
+                .glassIfEnabled(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), themeTint: true)
                 .padding(inset)
         } else {
             content.chromeBackground()

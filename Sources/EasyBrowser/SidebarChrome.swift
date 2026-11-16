@@ -81,7 +81,7 @@ struct ChromeIconButton: View {
 /// Клик открывает Spotlight с адресом, как в Arc.
 struct AddressCard: View {
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @State private var copied = false
     @State private var hovering = false
 
@@ -204,7 +204,7 @@ struct PageActionButtons: View {
 /// значок сайта в рамке цвета значка. Клик — открыть, правый клик — меню.
 struct FavoritesGrid: View {
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @State private var targeted = false
 
     var body: some View {
@@ -232,7 +232,7 @@ struct FavoritesGrid: View {
 private struct FavoriteTile: View {
     let tab: TabModel
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @State private var hovering = false
     private var cache: FaviconCache { .shared }
 
@@ -280,39 +280,14 @@ private struct FavoriteTile: View {
 
 // MARK: - Низ боковой панели
 
-/// История и аккаунты, загрузки и профили — в конце боковой панели.
+/// Низ боковой панели: кнопки, выбранные в настройках («Вкладки» → «Кнопки панели»), и профиль.
 struct SidebarFooter: View {
-    @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
-    private var downloads: DownloadStore { .shared }
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                ProfileSwitcher()
-                Spacer(minLength: 4)
-                if tabManager.modCapabilities.contains("splitView") {
-                    ChromeIconButton(symbol: "rectangle.split.2x1", help: "Разделить экран", fontSize: 11 * tabScale) {
-                        tabManager.startSplitView()
-                    }
-                }
-                if tabManager.modCapabilities.contains("sources") {
-                    ChromeIconButton(symbol: "books.vertical", help: "Источники · ⌘⇧S — сохранить страницу", fontSize: 11 * tabScale) {
-                        SourcesWindow.show(for: tabManager)
-                    }
-                }
-                ChromeIconButton(symbol: "clock.arrow.circlepath", help: "История и аккаунты (⌘Y)", fontSize: 11 * tabScale) {
-                    LibraryWindow.show(.history, for: tabManager)
-                }
-                ChromeIconButton(symbol: downloads.activeCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle",
-                                 help: "Загрузки (⌥⌘L)", fontSize: 11 * tabScale, active: downloads.activeCount > 0) {
-                    LibraryWindow.show(.downloads, for: tabManager)
-                }
-                NewItemMenu(fontSize: 11 * tabScale)
-            }
+        PanelButtonsRow()
             .padding(.horizontal, 8)
             .frame(height: 38 * tabScale)
-        }
     }
 }
 
@@ -377,13 +352,21 @@ struct NewItemMenu: View {
 /// Значок профиля внизу панели: аватар текущего профиля, меню со всеми профилями;
 /// остальные профили — маленькими точками рядом, для быстрого переключения.
 struct ProfileSwitcher: View {
+    /// Только аватар, без имени и точек других профилей — для полосы вкладок сверху.
+    var compact = false
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     private var store: ProfileStore { .shared }
 
     var body: some View {
         if tabManager.isIncognito {
-            Label("Инкогнито", systemImage: "eyeglasses")
+            Group {
+                if compact {
+                    Image(systemName: "eyeglasses").help("Инкогнито")
+                } else {
+                    Label("Инкогнито", systemImage: "eyeglasses")
+                }
+            }
                 .font(.system(size: 11 * tabScale, weight: .semibold))
                 .foregroundStyle(.purple)
                 .padding(.horizontal, 6)
@@ -411,16 +394,18 @@ struct ProfileSwitcher: View {
                 } label: {
                     HStack(spacing: 6) {
                         avatar(tabManager.profile, size: 22 * tabScale, current: true)
-                        Text(tabManager.profile.name)
-                            .font(.system(size: 11 * tabScale, weight: .semibold))
-                            .lineLimit(1)
+                        if !compact {
+                            Text(tabManager.profile.name)
+                                .font(.system(size: 11 * tabScale, weight: .semibold))
+                                .lineLimit(1)
+                        }
                     }
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Профиль: \(tabManager.profile.name)")
-                ForEach(Array(store.profiles.enumerated()).filter { $0.element.id != tabManager.profileID }, id: \.element.id) { index, profile in
+                ForEach(compact ? [] : Array(store.profiles.enumerated()).filter { $0.element.id != tabManager.profileID }, id: \.element.id) { index, profile in
                     Button { tabManager.switchProfile(to: profile.id) } label: {
                         avatar(profile, size: 16 * tabScale, current: false)
                     }

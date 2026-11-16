@@ -29,7 +29,7 @@ public struct BrowserShellView: View {
     @AppStorage("resourceResetShortcut") private var resourceResetShortcut: String = "control-option-r"
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = SidebarMetrics.defaultWidth
     @AppStorage("customURLPrefix") private var customURLPrefix: String = ""
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @AppStorage(AircraftTheme.liquidGlassKey) private var liquidGlass = false
     @State private var windowWidth: CGFloat = 1000
 
@@ -253,7 +253,6 @@ public struct BrowserShellView: View {
         let bar = 42 * tabScale
         switch tabPosition {
         case "top": return EdgeInsets(top: bar, leading: 0, bottom: 0, trailing: 0)
-        case "bottom": return EdgeInsets(top: 0, leading: 0, bottom: bar, trailing: 0)
         case "right": return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: sidebar)
         default: return EdgeInsets(top: 0, leading: sidebar, bottom: 0, trailing: 0)
         }
@@ -379,7 +378,7 @@ public struct SettingsView: View {
     @AppStorage("tabPosition") private var tabPosition: String = "left"
     @AppStorage("browserTheme") private var browserTheme: String = "system"
     @AppStorage(AircraftTheme.liquidGlassKey) private var liquidGlass = false
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
     @AppStorage("resourceMonitoring") private var resourceMonitoring: Bool = false
     @AppStorage("resourceLimitAlert") private var resourceLimitAlert: String = "none"
@@ -679,11 +678,10 @@ public struct SettingsView: View {
                     Text("Слева").tag("left")
                     Text("Справа").tag("right")
                     Text("Сверху").tag("top")
-                    Text("Снизу").tag("bottom")
                 }
                 .pickerStyle(.segmented)
                 Toggle("Плитки в полосе вкладок — одной папкой", isOn: $topBarTilesAsFolder)
-                    .disabled(tabPosition != "top" && tabPosition != "bottom")
+                    .disabled(tabPosition != "top")
                     .help("Сверху и снизу плитки собираются в одну кнопку с меню, а не занимают место по одной")
                 LabeledContent("Размер панели") {
                     HStack(spacing: 10) {
@@ -697,15 +695,23 @@ public struct SettingsView: View {
                 }
             }
             .disabled(!tabGroupsEnabled)
+            Section {
+                PanelButtonsEditor()
+            } header: {
+                Text("Кнопки панели")
+            } footer: {
+                Text("Порядок одинаков для панели слева, справа и сверху: вкладки, «Новая вкладка», эти кнопки, профиль. Перетащите строку или нажмите стрелки, чтобы переставить.")
+                    .foregroundStyle(.secondary)
+            }
+            .disabled(!tabGroupsEnabled)
             Section("Скрытая панель") {
-                Picker("Скрывать верхнюю панель", selection: $topBarHideMode) {
+                Picker("Скрывать панель", selection: $topBarHideMode) {
                     Text("Всегда").tag("always")
                     Text("Только в оконном режиме").tag("windowed")
                     Text("Никогда").tag("never")
                 }
-                .disabled(tabPosition != "top")
                 LabeledContent("Показать или скрыть", value: "⌃⌥S")
-                Text("Скрытая панель слева, справа или сверху сама выезжает, когда курсор подходит к краю окна, и видна, пока открыт Spotlight.")
+                Text("Относится к незакреплённой панели слева, справа и сверху. Скрытая панель сама выезжает, когда курсор подходит к краю окна, и видна, пока открыт Spotlight.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -1502,7 +1508,7 @@ private struct BrowserPane: View {
 }
 
 private struct WindowPageTopBand: View {
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @Environment(TabManager.self) private var tabManager: TabManager
 
     @AppStorage(AircraftTheme.insetPageKey) private var insetPage = true
@@ -1531,8 +1537,8 @@ public struct WorkspaceView: View {
     public var resourceLimitAlert: String
     public var resourceLimitMB: Double
     @Binding public var sidebarWidth: Double
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
-    /// Когда скрывать верхнюю панель: always — всегда, windowed — только в окне
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
+    /// Когда скрывать незакреплённую панель вкладок: always — всегда, windowed — только в окне
     /// (в полноэкранном режиме панель видна), never — не скрывать.
     @AppStorage("topBarHideMode") private var topBarHideMode: String = "always"
     @State private var isFullScreen = false
@@ -1591,7 +1597,7 @@ public struct WorkspaceView: View {
                     HStack(spacing: 0) {
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
-                                .pageCard(sidebarVisible ? [.bottom, .leading] : [.bottom, .horizontal])
+                                .pageCard(!tabBarHidden ? [.bottom, .leading] : [.bottom, .horizontal])
                                 .safeAreaInset(edge: .top, spacing: 0) { WindowPageTopBand() }
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -1599,7 +1605,7 @@ public struct WorkspaceView: View {
                                 ResourceHUDView(memoryBytes: memoryBytes, warnAtLimit: resourceLimitAlert == "limit", limitMB: resourceLimitMB, tabCount: tabManager.tabs.count)
                             }
                         }
-                        if sidebarVisible {
+                        if !tabBarHidden {
                             SidebarResizeHandle(width: sidebarWidth, sidebarOnRight: true) { newWidth in
                                 sidebarWidth = newWidth
                             }
@@ -1611,8 +1617,7 @@ public struct WorkspaceView: View {
                 } else if tabPosition == "top" {
                     VStack(spacing: 0) {
                         if !tabBarHidden {
-                            TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: !isFullScreen,
-                                       showsTabBarToggle: topBarHideMode != "never")
+                            TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: true)
                         }
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
@@ -1625,24 +1630,10 @@ public struct WorkspaceView: View {
                         }
                     }
                     .overlay(alignment: .top) { hoverRevealLayer(side: "top") }
-                } else if tabPosition == "bottom" {
-                    VStack(spacing: 0) {
-                        ZStack(alignment: .bottom) {
-                            BrowserContentView(showSearchModal: $showSearchModal)
-                                .pageCard(.horizontal)
-                                .safeAreaInset(edge: .top, spacing: 0) { WindowPageTopBand() }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                            if resourceMonitoring {
-                                ResourceHUDView(memoryBytes: memoryBytes, warnAtLimit: resourceLimitAlert == "limit", limitMB: resourceLimitMB, tabCount: tabManager.tabs.count)
-                            }
-                        }
-                        TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: false)
-                    }
                 } else {
                     // "left"
                     HStack(spacing: 0) {
-                        if sidebarVisible {
+                        if !tabBarHidden {
                             SidebarView(side: "left")
                                 .frame(width: SidebarMetrics.clamp(sidebarWidth))
                             SidebarResizeHandle(width: sidebarWidth, sidebarOnRight: false) { newWidth in
@@ -1651,7 +1642,7 @@ public struct WorkspaceView: View {
                         }
                         ZStack(alignment: .bottom) {
                             BrowserContentView(showSearchModal: $showSearchModal)
-                                .pageCard(sidebarVisible ? [.vertical, .trailing] : .all)
+                                .pageCard(!tabBarHidden ? [.vertical, .trailing] : .all)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                             if resourceMonitoring {
@@ -1673,28 +1664,6 @@ public struct WorkspaceView: View {
                 tabManager.setMobileBrowsing(isCompact)
             }
         }
-        }
-        .overlay(alignment: .top) {
-            if tabGroupsEnabled && !sidebarVisible && (tabPosition == "left" || tabPosition == "right") && !isCompact {
-                HStack {
-                    if tabPosition == "right" { Spacer() }
-                    Button { sidebarVisible = true } label: {
-                        Image(systemName: "pin")
-                            .font(.system(size: 11 * tabScale, weight: .semibold))
-                            .frame(width: 28 * tabScale, height: 28 * tabScale)
-                            .glassOr(RoundedRectangle(cornerRadius: 8), interactive: true) {
-                                RoundedRectangle(cornerRadius: 8).fill(.regularMaterial)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .help("Закрепить панель вкладок (⌃⌥S)")
-                    if tabPosition == "left" { Spacer() }
-                }
-                // Слева — под «светофором», справа — в углу.
-                .padding(.leading, tabPosition == "left" ? 10 : 8)
-                .padding(.trailing, 8)
-                .padding(.top, tabPosition == "left" ? 34 : 8)
-            }
         }
         .chromeBackground()
         .background(HostWindowReader(ref: hostWindow))
@@ -1731,14 +1700,14 @@ public struct WorkspaceView: View {
         if tabBarHidden && side == "top" {
             ZStack(alignment: .top) {
                 if hoverRevealed || showSearchModal {
-                    TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: !isFullScreen, showsTabBarToggle: true)
+                    TopBarView(showSearchModal: $showSearchModal, reservesWindowControls: true)
                         .floatingShadow(Rectangle(), color: .black.opacity(AircraftTheme.liquidGlass ? 0 : 0.18), radius: 12, y: 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .frame(maxWidth: .infinity)
             .animation(.easeOut(duration: 0.18), value: showSearchModal)
-        } else if !sidebarVisible {
+        } else if tabBarHidden {
             ZStack(alignment: side == "right" ? .trailing : .leading) {
                 if hoverRevealed || showSearchModal {
                     SidebarView(side: side, pinned: false)
@@ -1760,10 +1729,10 @@ public struct WorkspaceView: View {
 
     private var isCompact: Bool { (hostWindow.window?.frame.width ?? 1000) < 600 }
 
-    /// Скрыта ли сейчас панель вкладок с учётом настройки «Скрывать верхнюю панель».
+    /// Скрыта ли сейчас панель вкладок (слева, справа или сверху): закреплённая видна всегда,
+    /// незакреплённая — по настройке «Скрывать панель».
     private var tabBarHidden: Bool {
         guard !sidebarVisible else { return false }
-        guard tabPosition == "top" else { return true }
         switch topBarHideMode {
         case "never": return false
         case "windowed": return !isFullScreen
@@ -1771,10 +1740,10 @@ public struct WorkspaceView: View {
         }
     }
 
-    /// Когда верхняя панель вкладок скрыта, прячем и кнопки окна («светофор»);
+    /// Когда панель вкладок скрыта (сверху, слева или справа), прячем и кнопки окна («светофор»);
     /// они появляются вместе с панелью при наведении или в Spotlight.
     private func updateWindowButtons() {
-        let hide = tabGroupsEnabled && tabPosition == "top" && tabBarHidden && !isFullScreen
+        let hide = tabGroupsEnabled && tabBarHidden && !isFullScreen
             && !hoverRevealed && !showSearchModal
             && (hostWindow.window?.frame.width ?? 0) >= 600
         setWindowButtonsHidden(hide)
@@ -1791,7 +1760,7 @@ public struct WorkspaceView: View {
             let inset: CGFloat = glass ? 5 : 0
             return .init(barHeight: inset * 2 + 42 * tabScale, leading: inset + 12)
         case "left":
-            guard sidebarVisible || hoverRevealed || showSearchModal else { return nil }
+            guard !tabBarHidden || hoverRevealed || showSearchModal else { return nil }
             let inset: CGFloat = glass ? 8 : 0
             return .init(barHeight: inset * 2 + 38 * tabScale, leading: inset + 12)
         default:
@@ -1889,7 +1858,7 @@ public struct WorkspaceView: View {
 private struct MobileSidebarView: View {
     @Binding var sidebarVisible: Bool
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1971,7 +1940,7 @@ private struct MobileBottomBar: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 48)
-        .glassIfEnabled(Capsule(), tint: AircraftTheme.glassTint, interactive: true)
+        .glassIfEnabled(Capsule(), themeTint: true, interactive: true)
         .padding(.horizontal, AircraftTheme.liquidGlass ? 8 : 0)
         .padding(.bottom, AircraftTheme.liquidGlass ? 6 : 0)
     }
@@ -2036,7 +2005,7 @@ public struct SingleTabHeader: View {
     @Binding public var showSearchModal: Bool
     @Environment(TabManager.self) private var tabManager: TabManager
     @State private var isHoveringTitle = false
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
 
     public var body: some View {
         ZStack {
@@ -2130,41 +2099,15 @@ public struct ResourceHUDView: View {
 public struct TopBarView: View {
     @Binding public var showSearchModal: Bool
     public var reservesWindowControls: Bool = true
-    public var showsSettingsButton: Bool = true
-    /// Кнопка «Показать/скрыть вкладки» — для режима вкладок сверху.
-    public var showsTabBarToggle: Bool = false
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
 
     public var body: some View {
         HStack(spacing: 0) {
             if reservesWindowControls {
-                // Место под кнопки управления окном (закрыть/свернуть/развернуть).
-                Color.clear.frame(width: 80, height: 42 * tabScale)
-            }
-
-            if showsTabBarToggle {
-                Button {
-                    NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
-                } label: {
-                    Image(systemName: "rectangle.topthird.inset.filled")
-                        .font(.system(size: 11 * tabScale, weight: .medium))
-                        .frame(width: 32 * tabScale, height: 42 * tabScale)
-                }
-                .buttonStyle(.plain)
-                .help("Показать/скрыть вкладки (⌃⌥S)")
-            }
-
-            if showsSettingsButton {
-                Button {
-                    NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 11 * tabScale, weight: .medium))
-                        .frame(width: 32 * tabScale, height: 42 * tabScale)
-                }
-                .buttonStyle(.plain)
-                .help("Настройки")
+                // Место под кнопки управления окном (закрыть/свернуть/развернуть);
+                // в полноэкранном режиме кнопки свои, прямо на панели.
+                WindowControlsSlot(width: 80, height: 42 * tabScale)
             }
 
             ScrollViewReader { proxy in
@@ -2200,8 +2143,7 @@ public struct TopBarView: View {
                             }
                         }
 
-                        ModNavigationItems(horizontal: true)
-
+                        // «Новая вкладка» сразу после вкладок, как в боковой панели.
                         NewItemMenu(fontSize: 11 * tabScale, clickCreatesTab: true)
                             .padding(.horizontal, 4)
                     }
@@ -2216,6 +2158,10 @@ public struct TopBarView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
+
+            // Кнопки из настроек и профиль — как внизу боковой панели.
+            PanelButtonsRow(compactProfile: true)
+                .padding(.horizontal, 8)
         }
         .frame(height: 42 * tabScale)
         .background(WindowDragArea())
@@ -2227,7 +2173,7 @@ private struct PinnedTabStripItem: View {
     let tab: TabModel
     let isActive: Bool
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
     @State private var copied = false
 
     var body: some View {
@@ -2277,7 +2223,7 @@ private struct TabStripItem: View {
     @Environment(TabManager.self) private var tabManager: TabManager
     @State private var isHovering = false
     @State private var copied = false
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
 
     var body: some View {
         HStack(spacing: 6) {
@@ -2347,19 +2293,15 @@ public struct SidebarView: View {
     /// false — панель не закреплена и выехала при наведении.
     var pinned: Bool = true
     @Environment(TabManager.self) private var tabManager: TabManager
-    @AppStorage("tabScale") private var tabScale: Double = 0.9
+    @AppStorage("tabScale") private var tabScale: Double = 1.0
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 2) {
+                // Закрепить/скрыть панель, настройки и прочее — в настраиваемом ряду внизу.
                 if side == "left" {
-                    // Место под кнопки окна («светофор»).
-                    Color.clear.frame(width: 70)
-                    if pinned {
-                        ChromeIconButton(symbol: "sidebar.left", help: "Открепить панель вкладок (⌃⌥S)", fontSize: 11 * tabScale) {
-                            NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
-                        }
-                    }
+                    // Место под кнопки окна («светофор»); в полноэкранном режиме — свои кнопки.
+                    WindowControlsSlot(width: 70)
                     Spacer(minLength: 0)
                     NavigationArrows(fontSize: 11 * tabScale)
                     ReloadPageButton(fontSize: 11 * tabScale)
@@ -2367,39 +2309,12 @@ public struct SidebarView: View {
                     NavigationArrows(fontSize: 11 * tabScale)
                     ReloadPageButton(fontSize: 11 * tabScale)
                     Spacer(minLength: 0)
-                    ChromeIconButton(symbol: "gearshape", help: "Настройки (⌘,)", fontSize: 11 * tabScale) {
-                        NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
-                    }
-                    ChromeIconButton(symbol: "sidebar.right", help: "Скрыть панель вкладок (⌃⌥S)", fontSize: 11 * tabScale) {
-                        NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
-                    }
                 }
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal, 8)
             .frame(height: 38 * tabScale)
             .background(WindowDragArea())
-
-            if !pinned {
-                // Незакреплённая панель: «Закрепить» — под «светофором».
-                HStack {
-                    Button {
-                        NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
-                    } label: {
-                        Label("Закрепить панель", systemImage: "pin")
-                            .font(.system(size: 11 * tabScale, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .frame(height: 24 * tabScale)
-                            .background(Color.primary.opacity(0.06), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Закрепить панель вкладок (⌃⌥S)")
-                    Spacer()
-                }
-                .padding(.leading, side == "left" ? 12 : 8)
-                .padding(.bottom, 6)
-            }
 
             AddressCard()
                 .padding(.horizontal, 8)
@@ -2540,43 +2455,6 @@ private struct MobileAddressField: View {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url, forType: .string)
         copied = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
-    }
-}
-
-private struct ModNavigationItems: View {
-    let horizontal: Bool
-    @Environment(TabManager.self) private var tabManager: TabManager
-
-    private var hasItems: Bool {
-        !tabManager.modCapabilities.isDisjoint(with: ["devtools", "historyAccounts", "splitView"])
-    }
-
-    var body: some View {
-        Group {
-            if hasItems {
-                if horizontal {
-                    Divider().frame(height: 22).padding(.horizontal, 4)
-                } else {
-                    Divider().padding(.vertical, 6)
-                }
-            }
-            if tabManager.modCapabilities.contains("devtools") {
-                item("Web Inspector", icon: "ladybug") { tabManager.toggleModPanel("devtools") }
-            }
-            if tabManager.modCapabilities.contains("historyAccounts") {
-                item("История и аккаунты", icon: "clock.arrow.circlepath") { tabManager.toggleModPanel("historyAccounts") }
-            }
-            if tabManager.modCapabilities.contains("splitView") {
-                item("Разделить экран", icon: "rectangle.split.2x1") { tabManager.startSplitView() }
-            }
-        }
-    }
-
-    private func item(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            if horizontal { Image(systemName: icon).frame(width: 32, height: 36).help(title) }
-            else { Label(title, systemImage: icon).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).frame(height: 34) }
-        }.buttonStyle(.plain).foregroundColor(.secondary)
     }
 }
 
@@ -2789,7 +2667,7 @@ public struct SearchModalView: View {
                 }
                 footer
             }
-            .glassOr(RoundedRectangle(cornerRadius: 20, style: .continuous), tint: AircraftTheme.glassTint) {
+            .glassOr(RoundedRectangle(cornerRadius: 20, style: .continuous), themeTint: true) {
                 ZStack {
                     Rectangle().fill(.regularMaterial)
                     Color(NSColor.windowBackgroundColor).opacity(0.55)
