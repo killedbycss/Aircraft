@@ -81,43 +81,32 @@ enum WindowButtonLayout {
 
 // MARK: - Полноэкранный режим
 
-/// В полноэкранном режиме macOS по наведению к верху экрана выдвигает меню вместе с заголовком
-/// окна и его кнопками — они ложатся поверх панели вкладок, и до вкладок не дотянуться.
-/// Поэтому в полноэкранном окне прячем меню совсем, а системные кнопки окна ставим
-/// прямо на панель вкладок (`WindowControlsSlot`).
+/// В полноэкранном режиме macOS по наведению к верху экрана выдвигает меню, а вместе с ним —
+/// заголовок окна со «светофором». Меню оставляем, а заголовок ложится поверх панели вкладок.
+/// Поэтому, пока панель вкладок видна, кнопки окна стоят прямо на ней (`WindowControlsSlot`),
+/// а системный заголовок невидим и пропускает клики. Когда панель скрыта — заголовок обычный,
+/// чтобы кнопки окна были доступны.
 @MainActor
 enum FullScreenChrome {
-    private static var observers: [NSObjectProtocol] = []
-    private static var optionsObservation: NSKeyValueObservation?
-
-    static func install() {
-        guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
-        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didBecomeKeyNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { hideMenuBarIfNeeded(window) }
-            })
+    /// Вызывается регулярно (AppKit сам возвращает заголовку видимость при каждом показе меню).
+    static func setSystemTitlebarHidden(_ hidden: Bool, in window: NSWindow) {
+        let hidden = hidden && window.styleMask.contains(.fullScreen)
+        // Кнопки заголовка и их контейнер — в самом окне; спрятанный вид не ловит клики.
+        if let container = window.standardWindowButton(.closeButton)?.superview?.superview, container.isHidden != hidden {
+            container.isHidden = hidden
         }
-        // SwiftUI сразу после входа в полноэкранный режим возвращает свои параметры показа
-        // (меню снова выезжает по наведению) — поэтому следим за ними и ставим наши ещё раз.
-        optionsObservation = NSApp.observe(\.presentationOptions) { _, _ in
-            DispatchQueue.main.async { hideMenuBarIfNeeded(NSApp.keyWindow) }
+        // Фон выезжающего заголовка — отдельное дочернее окно.
+        for child in window.childWindows ?? [] where String(describing: type(of: child)).contains("FullScreen") {
+            let alpha: CGFloat = hidden ? 0 : 1
+            if child.alphaValue != alpha { child.alphaValue = alpha }
+            if child.ignoresMouseEvents != hidden { child.ignoresMouseEvents = hidden }
         }
-    }
-
-    private static func hideMenuBarIfNeeded(_ window: NSWindow?) {
-        guard let window, window.styleMask.contains(.fullScreen) else { return }
-        let options = NSApp.presentationOptions
-        guard options.contains(.fullScreen), !options.contains(.hideMenuBar) else { return }
-        // .hideMenuBar допустим только вместе с .hideDock.
-        NSApp.presentationOptions = options.subtracting([.autoHideMenuBar, .autoHideDock]).union([.hideDock, .hideMenuBar])
     }
 }
 
 /// Место под кнопки окна на панели вкладок. В обычном окне пустое — там стоят кнопки
-/// из заголовка окна (`WindowButtonLayout`); в полноэкранном заголовок спрятан, поэтому
-/// здесь стоят такие же системные кнопки, созданные отдельно.
+/// из заголовка окна (`WindowButtonLayout`); в полноэкранном заголовок уезжает вверх вместе
+/// с меню, поэтому здесь стоят такие же системные кнопки, созданные отдельно.
 struct WindowControlsSlot: View {
     var width: CGFloat
     var height: CGFloat? = nil

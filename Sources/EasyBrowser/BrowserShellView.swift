@@ -1749,10 +1749,15 @@ public struct WorkspaceView: View {
         let hide = tabGroupsEnabled && tabBarHidden && !isFullScreen
             && !hoverRevealed && !showSearchModal
             && (hostWindow.window?.frame.width ?? 0) >= 600
-        // В полноэкранном режиме кнопки окна рисуем сами на панели (`WindowControlsSlot`),
-        // системные прячем всегда — чтобы не было двух «светофоров».
-        setWindowButtonsHidden(hide || isFullScreen)
-        if let window = hostWindow.window { WindowButtonLayout.apply(windowButtonPlacement, to: window) }
+        setWindowButtonsHidden(hide)
+        guard let window = hostWindow.window else { return }
+        // Полноэкранный режим: пока видна панель с кнопками окна (слева или сверху), системный
+        // заголовок, который выезжает вместе с меню, не должен её закрывать.
+        let panelHasWindowButtons = isFullScreen && tabGroupsEnabled && !isCompact
+            && (tabPosition == "left" || tabPosition == "top")
+            && (!tabBarHidden || hoverRevealed || showSearchModal)
+        FullScreenChrome.setSystemTitlebarHidden(panelHasWindowButtons, in: window)
+        WindowButtonLayout.apply(windowButtonPlacement, to: window)
     }
 
     /// Куда ставить «светофор»: по центру верхней панели вкладок или шапки боковой панели.

@@ -28,7 +28,6 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        FullScreenChrome.install()
         for window in NSApp.windows {
             window.tabbingMode = .disallowed
             window.tabbingIdentifier = ""
