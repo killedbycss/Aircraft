@@ -1,3 +1,4 @@
+import AircraftLanguage
 import AppKit
 import SwiftUI
 
@@ -62,7 +63,7 @@ struct AdBlockSettingsPane: View {
                     .foregroundStyle(anyProtection ? Color.green : Color.secondary)
                     .frame(width: 34)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(anyProtection ? "Защита включена" : "Защита выключена")
+                    Text(anyProtection ? L10n("Protection on") : L10n("Protection off"))
                         .font(.system(size: 14, weight: .semibold))
                     if let status = store.buildStatus {
                         HStack(spacing: 6) {
@@ -71,7 +72,7 @@ struct AdBlockSettingsPane: View {
                         }
                         .font(.system(size: 11))
                     } else if anyProtection {
-                        Text("Активно \(store.activeRuleCount.formatted()) правил · списков: \(enabledListCount)")
+                        Text(L10n("Active rules: %1$@ · Lists: %2$@", "\(store.activeRuleCount.formatted())", "\(enabledListCount)"))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -80,9 +81,9 @@ struct AdBlockSettingsPane: View {
                 Button {
                     ElementPicker.startInFrontmostWindow()
                 } label: {
-                    Label("Скрыть элемент…", systemImage: "eyedropper")
+                    Label(L10n("Hide element…"), systemImage: "eyedropper")
                 }
-                .help("Выберите на открытой странице элемент, который нужно скрыть навсегда (⌥⌘B)")
+                .help(L10n("Select an element to hide on this page (⌥⌘B)"))
             }
             .padding(.vertical, 4)
         }
@@ -95,30 +96,27 @@ struct AdBlockSettingsPane: View {
 
     private var protectionSection: some View {
         Section {
-            toggleRow(symbol: "hand.raised.fill", color: .red, title: "Блокировщик рекламы",
-                      subtitle: "Встроенный список рекламных сетей, подписки на списки фильтров и свои правила",
+            toggleRow(symbol: "hand.raised.fill", title: L10n("Block ads"),
+                      subtitle: L10n("Built-in ad networks, filter lists and custom rules"),
                       isOn: $adBlockEnabled)
-            toggleRow(symbol: "eye.slash.fill", color: .indigo, title: "Блокировщик трекеров",
-                      subtitle: "Счётчики и пиксели слежки, метки utm_*, fbclid, gclid в ссылках",
+            toggleRow(symbol: "eye.slash.fill", title: L10n("Block trackers"),
+                      subtitle: L10n("Blocks tracking pixels and removes utm_*, fbclid and gclid from links."),
                       isOn: $trackerBlockEnabled)
-            toggleRow(symbol: "magnifyingglass", color: .orange, title: "Блокировать рекламу Яндекса",
-                      subtitle: "Директ в Поиске, Карты, Маркет, Музыка, РСЯ и Adfox на сайтах, обход анти-адблока",
+            toggleRow(symbol: "magnifyingglass", title: L10n("Block Yandex ads"),
+                      subtitle: L10n("Direct, Maps, Market, Music, Yandex Ad Network and Adfox"),
                       isOn: $yandexAdBlockEnabled)
-            toggleRow(symbol: "play.rectangle.fill", color: .blue, title: "Блокировать рекламу Google",
-                      subtitle: "Реклама в поиске Google, AdSense на сайтах, ролики, баннеры и окна анти-адблока на YouTube",
+            toggleRow(symbol: "play.rectangle.fill", title: L10n("Block Google ads"),
+                      subtitle: L10n("Search ads, AdSense, YouTube ads and anti-blocking prompts"),
                       isOn: $googleAdBlockEnabled)
         } header: {
-            Text("Защита")
+            Text(L10n("Protection"))
         }
     }
 
-    private func toggleRow(symbol: String, color: Color, title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
+    private func toggleRow(symbol: String, title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(color.gradient, in: RoundedRectangle(cornerRadius: 8))
+                .modifier(SettingsSymbolStyle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                 Text(subtitle)
@@ -126,7 +124,7 @@ struct AdBlockSettingsPane: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Toggle("", isOn: isOn)
+            Toggle(title, isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
         }
@@ -146,24 +144,24 @@ struct AdBlockSettingsPane: View {
             }
         } header: {
             HStack {
-                Text("Списки: \(group.title.lowercased())")
+                Text(L10n("Lists: %1$@", "\(group.title.lowercased())"))
                 Spacer()
                 if group == .ads {
-                    Picker("Обновлять", selection: Binding(get: { store.autoUpdateDays }, set: { store.autoUpdateDays = $0 })) {
-                        Text("Каждый день").tag(1)
-                        Text("Раз в 4 дня").tag(4)
-                        Text("Раз в неделю").tag(7)
-                        Text("Вручную").tag(0)
+                    Picker(L10n("Update"), selection: Binding(get: { store.autoUpdateDays }, set: { store.autoUpdateDays = $0 })) {
+                        Text(L10n("Daily")).tag(1)
+                        Text(L10n("Every four days")).tag(4)
+                        Text(L10n("Weekly")).tag(7)
+                        Text(L10n("Manually")).tag(0)
                     }
                     .pickerStyle(.menu)
                     .fixedSize()
-                    Button("Обновить все") { Task { await store.updateAll() } }
+                    Button(L10n("Update all")) { Task { await store.updateAll() } }
                         .disabled(!store.updating.isEmpty)
                 }
             }
         } footer: {
             if group == .ads && !adBlockEnabled {
-                Text("Списки работают, когда включён «Блокировщик рекламы».")
+                Text(L10n("Enable ad blocking to use these lists."))
                     .foregroundStyle(.secondary)
             }
         }
@@ -196,14 +194,14 @@ struct AdBlockSettingsPane: View {
                     Task { await store.update(ids: [list.id]) }
                 } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless)
-                    .help("Обновить список")
+                    .help(L10n("Update list"))
             }
             if removable {
                 Button {
                     store.removeCustomList(id: list.id)
                 } label: { Image(systemName: "trash") }
                     .buttonStyle(.borderless)
-                    .help("Удалить подписку")
+                    .help(L10n("Remove subscription"))
             }
             Toggle("", isOn: Binding(get: { store.isEnabled(list.id) }, set: { store.setEnabled($0, id: list.id) }))
                 .labelsHidden()
@@ -215,19 +213,19 @@ struct AdBlockSettingsPane: View {
 
     private func listDetails(_ list: FilterListInfo) -> String {
         let state = store.states[list.id]
-        if let error = state?.lastError { return "Ошибка: \(error)" }
+        if let error = state?.lastError { return L10n("Error: %1$@", "\(error)") }
         guard store.isDownloaded(list.id) else {
-            return store.isEnabled(list.id) ? "Загружается…" : "Не загружен"
+            return store.isEnabled(list.id) ? L10n("Downloading…") : L10n("Not downloaded")
         }
         var parts: [String] = []
         if let converted = state?.convertedRules {
-            parts.append("\(converted.formatted()) правил")
-            if let skipped = state?.skippedRules, skipped > 0 { parts.append("\(skipped.formatted()) не поддерживается") }
+            parts.append(L10n("Rules: %1$@", "\(converted.formatted())"))
+            if let skipped = state?.skippedRules, skipped > 0 { parts.append(L10n("Unsupported: %1$@", "\(skipped.formatted())")) }
         }
         if let updated = state?.lastUpdated {
-            parts.append("обновлён " + updated.formatted(.relative(presentation: .named)))
+            parts.append(L10n("Updated ") + updated.formatted(.relative(presentation: .named)))
         }
-        return parts.isEmpty ? "Загружен" : parts.joined(separator: " · ")
+        return parts.isEmpty ? L10n("Downloaded") : parts.joined(separator: " · ")
     }
 
     private var customListsSection: some View {
@@ -236,14 +234,14 @@ struct AdBlockSettingsPane: View {
                 listRow(list, removable: true)
             }
             HStack {
-                TextField("Адрес списка", text: $newListURL, prompt: Text("https://example.com/filters.txt"))
+                TextField(L10n("List URL"), text: $newListURL, prompt: Text("https://example.com/filters.txt"))
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(addList)
                 if isAddingList {
                     ProgressView().controlSize(.small)
                 } else {
-                    Button("Добавить", action: addList)
+                    Button(L10n("Add"), action: addList)
                         .disabled(newListURL.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -251,9 +249,9 @@ struct AdBlockSettingsPane: View {
                 Text(addListError).font(.system(size: 11)).foregroundStyle(.red)
             }
         } header: {
-            Text("Свои подписки")
+            Text(L10n("Custom subscriptions"))
         } footer: {
-            Text("Подойдёт любой список в формате Adblock Plus, uBlock Origin или AdGuard, а также hosts-файл. Подборки: filterlists.com.")
+            Text(L10n("Supports Adblock Plus, uBlock Origin, AdGuard and hosts files. Find lists at filterlists.com."))
                 .foregroundStyle(.secondary)
         }
     }
@@ -284,24 +282,24 @@ struct AdBlockSettingsPane: View {
             HStack {
                 let stats = store.customRulesStats
                 if !store.customRules.isEmpty {
-                    Text("Принято: \(stats.converted)" + (stats.skipped > 0 ? " · не поддерживается: \(stats.skipped)" : ""))
+                    Text(L10n("Accepted: %1$@", "\(stats.converted)") + (stats.skipped > 0 ? L10n(" · Unsupported: %1$@", "\(stats.skipped)") : ""))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Отменить") { rulesDraft = store.customRules }
+                Button(L10n("Undo")) { rulesDraft = store.customRules }
                     .disabled(!rulesDraftIsDirty)
-                Button("Применить") { store.setCustomRules(rulesDraft) }
+                Button(L10n("Apply")) { store.setCustomRules(rulesDraft) }
                     .buttonStyle(.borderedProminent)
                     .disabled(!rulesDraftIsDirty)
                     .keyboardShortcut("s", modifiers: .command)
             }
         } header: {
-            Text("Свои правила")
+            Text(L10n("Custom rules"))
         } footer: {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Синтаксис Adblock Plus / uBlock Origin, одно правило на строку. Работают, даже если основной блокировщик выключен.")
-                Text("||ads.example.com^ — блокировать домен · example.com##.banner — скрыть элемент · @@||example.com^ — не блокировать · ! комментарий")
+                Text(L10n("One Adblock Plus or uBlock Origin rule per line. Custom rules also run when ad blocking is off."))
+                Text(L10n("||ads.example.com^ blocks a domain · example.com##.banner hides an element · @@||example.com^ adds an exception · ! starts a comment"))
                     .font(.system(size: 10.5, design: .monospaced))
             }
             .foregroundStyle(.secondary)
@@ -313,7 +311,7 @@ struct AdBlockSettingsPane: View {
     private var allowlistSection: some View {
         Section {
             if let host = currentSiteHost {
-                Toggle("Отключить защиту на \(host)", isOn: Binding(
+                Toggle(L10n("Disable protection on %1$@", "\(host)"), isOn: Binding(
                     get: { allowlist.contains(host) },
                     set: { setAllowed($0, host: host) }
                 ))
@@ -325,21 +323,21 @@ struct AdBlockSettingsPane: View {
                     Spacer()
                     Button { setAllowed(false, host: host) } label: { Image(systemName: "trash") }
                         .buttonStyle(.borderless)
-                        .help("Снова включить защиту на этом сайте")
+                        .help(L10n("Enable protection on this site"))
                 }
             }
             HStack {
-                TextField("Сайт", text: $newAllowedSite, prompt: Text("example.com"))
+                TextField(L10n("Site"), text: $newAllowedSite, prompt: Text("example.com"))
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(addAllowedSite)
-                Button("Добавить", action: addAllowedSite)
+                Button(L10n("Add"), action: addAllowedSite)
                     .disabled(cleanedHost(newAllowedSite) == nil)
             }
         } header: {
-            Text("Сайты без блокировки")
+            Text(L10n("Excluded sites"))
         } footer: {
-            Text("На этих сайтах (и их поддоменах) не работают ни списки, ни встроенные правила. Пригодится, если сайт ломается.")
+            Text(L10n("Built-in rules and filter lists skip these sites and their subdomains."))
                 .foregroundStyle(.secondary)
         }
     }

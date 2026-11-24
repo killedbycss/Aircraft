@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import Network
 import Security
@@ -74,7 +75,7 @@ final class AgentServer {
     func start() {
         guard listener == nil else { return }
         guard let port = NWEndpoint.Port(rawValue: UInt16(Self.port)) else {
-            state = .failed("Неверный порт")
+            state = .failed(L10n("Invalid port"))
             return
         }
         let parameters = NWParameters.tcp
@@ -116,7 +117,7 @@ final class AgentServer {
         case .failed(let error):
             let message: String
             if case .posix(let code) = error, code == .EADDRINUSE {
-                message = "Порт \(Self.port) занят другой программой"
+                message = L10n("Port %1$@ is in use", "\(Self.port)")
             } else {
                 message = error.localizedDescription
             }

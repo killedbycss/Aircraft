@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 import WebKit
@@ -28,7 +29,7 @@ struct NavigationArrows: View {
                     Text(item.title?.isEmpty == false ? item.title! : item.url.absoluteString)
                 }
             }
-            if items.isEmpty { Text("История пуста") }
+            if items.isEmpty { Text(L10n("No history")) }
         } label: {
             Image(systemName: back ? "arrow.left" : "arrow.right")
                 .font(.system(size: fontSize, weight: .semibold))
@@ -42,7 +43,7 @@ struct NavigationArrows: View {
         .contentShape(Rectangle())
         .opacity(enabled ? 1 : 0.35)
         .disabled(!enabled)
-        .help(back ? "Назад (⌘[) · удерживайте — список страниц" : "Вперёд (⌘]) · удерживайте — список страниц")
+        .help(back ? L10n("Back (⌘[) · Hold for history") : L10n("Forward (⌘]) · Hold for history"))
     }
 
     private func historyItems(back: Bool) -> [WKBackForwardListItem] {
@@ -112,7 +113,7 @@ struct AddressCard: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 4)
                                 .background(Capsule().fill(Color.orange))
-                                .help("Локальный сервер: ⌘R обновляет без кэша, вкладка не усыпляется")
+                                .help(L10n("Local server: ⌘R bypasses cache. This tab stays awake."))
                         } else if tab?.url?.scheme == "https" {
                             Image(systemName: "lock.fill").font(.system(size: 7 * tabScale))
                         }
@@ -130,7 +131,7 @@ struct AddressCard: View {
                         .foregroundStyle(copied ? .green : .secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Скопировать ссылку (⌘⇧C)")
+                .help(L10n("Copy link (⌘⇧C)"))
             }
             AppLinkAddressButton(fontSize: 11 * tabScale)
             PageActionButtons(fontSize: 11 * tabScale)
@@ -143,16 +144,16 @@ struct AddressCard: View {
         .onTapGesture {
             NotificationCenter.default.post(name: .showCurrentURLSpotlight, object: tabManager.hostWindow ?? NSApp.keyWindow)
         }
-        .help("Адрес или поиск (⌘L)")
+        .help(L10n("Address or search (⌘L)"))
         .contextMenu {
-            Button("Скопировать ссылку") { copyURL() }.disabled(tab?.url == nil)
-            Button("Обновить (⌘R)") { tabManager.reloadActiveTab() }.disabled(tab?.url == nil)
+            Button(L10n("Copy Link")) { copyURL() }.disabled(tab?.url == nil)
+            Button(L10n("Reload (⌘R)")) { tabManager.reloadActiveTab() }.disabled(tab?.url == nil)
         }
     }
 
     private func title(_ tab: TabModel?) -> String {
-        guard let tab, tab.url != nil else { return "Поиск или адрес" }
-        return tab.title.isEmpty ? (tab.url?.host ?? "Страница") : tab.title
+        guard let tab, tab.url != nil else { return L10n("Search or address") }
+        return tab.title.isEmpty ? (tab.url?.host ?? L10n("Page")) : tab.title
     }
 
     private func address(_ tab: TabModel?) -> String? {
@@ -185,14 +186,14 @@ struct PageActionButtons: View {
                             .font(.system(size: fontSize, weight: .medium))
                     }
                     .buttonStyle(.plain)
-                    .help("Режим чтения (⌘⇧R)")
+                    .help(L10n("Reader mode (⌘⇧R)"))
                 }
                 Button { tabManager.bookmarkEditorVisible.toggle() } label: {
                     Image(systemName: tabManager.bookmarks.contains(tab.url) ? "bookmark.fill" : "bookmark")
                         .font(.system(size: fontSize, weight: .medium))
                 }
                 .buttonStyle(.plain)
-                .help("Закладка (⌘D)")
+                .help(L10n("Bookmark (⌘D)"))
             }
             .foregroundStyle(.secondary)
         }
@@ -267,14 +268,14 @@ private struct FavoriteTile: View {
                 return tabManager.dropNode(id, onto: tab.id, intoFolder: false)
             }
             .contextMenu {
-                Button("Вернуть к закреплённому адресу") {
+                Button(L10n("Return to pinned URL")) {
                     tabManager.selectTab(id: tab.id)
                     tabManager.closeActiveTabFromShortcut()
                 }
-                Button("Убрать из плиток") { tabManager.dropNode(tab.id, toEndOf: .pinned) }
-                Button("Открепить") { tabManager.togglePinTab(id: tab.id) }
+                Button(L10n("Remove from favorites")) { tabManager.dropNode(tab.id, toEndOf: .pinned) }
+                Button(L10n("Unpin")) { tabManager.togglePinTab(id: tab.id) }
                 Divider()
-                Button("Закрыть") { tabManager.closeTab(id: tab.id) }
+                Button(L10n("Close")) { tabManager.closeTab(id: tab.id) }
             }
     }
 }
@@ -313,7 +314,7 @@ struct NewItemMenu: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .onHover { hovering = $0 }
-        .help(clickCreatesTab ? "Новая вкладка (⌘T) · удерживайте — папка, разделение экрана" : "Создать: вкладку, папку, окно")
+        .help(clickCreatesTab ? L10n("New tab (⌘T) · Hold for folders and split view") : L10n("New tab, folder or window"))
     }
 
     private var label: some View {
@@ -327,21 +328,21 @@ struct NewItemMenu: View {
 
     @ViewBuilder
     private var items: some View {
-        Button { newTab() } label: { Label("Новая вкладка  ⌘T", systemImage: "plus.square") }
-        Button { tabManager.createFolder() } label: { Label("Новая папка", systemImage: "folder.badge.plus") }
+        Button { newTab() } label: { Label(L10n("New tab  ⌘T"), systemImage: "plus.square") }
+        Button { tabManager.createFolder() } label: { Label(L10n("New folder"), systemImage: "folder.badge.plus") }
             .disabled(!tabManager.tree.canCreateFolder(in: .regularRoot))
-        Button { tabManager.createFolder(zone: .pinned) } label: { Label("Новая папка в закреплённых", systemImage: "pin") }
+        Button { tabManager.createFolder(zone: .pinned) } label: { Label(L10n("New pinned folder"), systemImage: "pin") }
             .disabled(!tabManager.tree.canCreateFolder(in: .pinnedRoot))
         if tabManager.modCapabilities.contains("splitView") {
-            Button { tabManager.startSplitView() } label: { Label("Разделить экран", systemImage: "rectangle.split.2x1") }
+            Button { tabManager.startSplitView() } label: { Label(L10n("Split screen"), systemImage: "rectangle.split.2x1") }
                 .disabled(tabManager.activeTab?.url == nil)
         }
         Divider()
         Button { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() } label: {
-            Label("Новое окно  ⌘N", systemImage: "macwindow.badge.plus")
+            Label(L10n("New window  ⌘N"), systemImage: "macwindow.badge.plus")
         }
         Button { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true) } label: {
-            Label("Окно инкогнито  ⇧⌘N", systemImage: "eyeglasses")
+            Label(L10n("Incognito window  ⇧⌘N"), systemImage: "eyeglasses")
         }
     }
 
@@ -363,9 +364,9 @@ struct ProfileSwitcher: View {
         if tabManager.isIncognito {
             Group {
                 if compact {
-                    Image(systemName: "eyeglasses").help("Инкогнито")
+                    Image(systemName: "eyeglasses").help(L10n("Incognito"))
                 } else {
-                    Label("Инкогнито", systemImage: "eyeglasses")
+                    Label(L10n("Incognito"), systemImage: "eyeglasses")
                 }
             }
                 .font(.system(size: 11 * tabScale, weight: .semibold))
@@ -386,12 +387,12 @@ struct ProfileSwitcher: View {
                         }
                     }
                     Divider()
-                    Button("Новый профиль…") { ProfileBar.createProfile(in: tabManager) }
-                    Button("Окно инкогнито (⌘⇧N)") {
+                    Button(L10n("New profile…")) { ProfileBar.createProfile(in: tabManager) }
+                    Button(L10n("Incognito window (⌘⇧N)")) {
                         (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true)
                     }
                     Divider()
-                    Button("Настроить профили…") { SettingsWindowController.shared.show(pane: .profiles) }
+                    Button(L10n("Manage profiles…")) { SettingsWindowController.shared.show(pane: .profiles) }
                 } label: {
                     HStack(spacing: 6) {
                         avatar(tabManager.profile, size: 22 * tabScale, current: true)
@@ -405,7 +406,7 @@ struct ProfileSwitcher: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("Профиль: \(tabManager.profile.name)")
+                .help(L10n("Profile: %1$@", "\(tabManager.profile.name)"))
                 ForEach(compact ? [] : Array(store.profiles.enumerated()).filter { $0.element.id != tabManager.profileID }, id: \.element.id) { index, profile in
                     Button { tabManager.switchProfile(to: profile.id) } label: {
                         avatar(profile, size: 16 * tabScale, current: false)

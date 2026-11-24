@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 import WebKit
@@ -89,7 +90,7 @@ struct DownloadsList: View {
         let items = store.items.filter { search.isEmpty || $0.fileName.localizedCaseInsensitiveContains(search) }
         VStack(spacing: 0) {
             if items.isEmpty {
-                ContentUnavailableView(search.isEmpty ? "Загрузок пока нет" : "Ничего не найдено", systemImage: "arrow.down.circle")
+                ContentUnavailableView(search.isEmpty ? L10n("No downloads") : L10n("No results"), systemImage: "arrow.down.circle")
             } else {
                 List(items) { item in
                     DownloadRow(item: item)
@@ -97,10 +98,10 @@ struct DownloadsList: View {
             }
             Divider()
             HStack {
-                Button("Очистить список") { store.clearFinished() }
+                Button(L10n("Clear list")) { store.clearFinished() }
                     .disabled(store.items.allSatisfy { $0.state == .running })
                 Spacer()
-                Button("Открыть папку загрузок") { NSWorkspace.shared.open(Self.downloadsFolder) }
+                Button(L10n("Open downloads folder")) { NSWorkspace.shared.open(Self.downloadsFolder) }
             }
             .font(.system(size: 11))
             .padding(10)
@@ -138,31 +139,31 @@ private struct DownloadRow: View {
                 case .finished:
                     Text(status).font(.system(size: 10)).foregroundStyle(.secondary)
                 case .failed:
-                    Text("Не загружено").font(.system(size: 10)).foregroundStyle(.red)
+                    Text(L10n("download.missing")).font(.system(size: 10)).foregroundStyle(.red)
                 }
             }
             Spacer()
             if item.state == .finished, let file = item.file, exists {
                 Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: { Image(systemName: "magnifyingglass") }
                     .buttonStyle(.borderless)
-                    .help("Показать в Finder")
+                    .help(L10n("Show in Finder"))
             }
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { if let file = item.file, exists { NSWorkspace.shared.open(file) } }
         .contextMenu {
             if let file = item.file, exists {
-                Button("Открыть") { NSWorkspace.shared.open(file) }
-                Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                Button(L10n("Open")) { NSWorkspace.shared.open(file) }
+                Button(L10n("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([file]) }
             }
             if let source = item.source {
-                Button("Скопировать адрес") {
+                Button(L10n("Copy address")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(source.absoluteString, forType: .string)
                 }
             }
             Divider()
-            Button("Убрать из списка") { DownloadStore.shared.remove(item.id) }
+            Button(L10n("Remove from list")) { DownloadStore.shared.remove(item.id) }
         }
     }
 
@@ -170,7 +171,7 @@ private struct DownloadRow: View {
         var parts: [String] = []
         if item.totalBytes > 0 { parts.append(ByteCountFormatter.string(fromByteCount: item.totalBytes, countStyle: .file)) }
         parts.append(item.startedAt.formatted(date: .abbreviated, time: .shortened))
-        if !exists { parts.append("файл удалён") }
+        if !exists { parts.append(L10n("File deleted")) }
         return parts.joined(separator: " · ")
     }
 }
@@ -200,7 +201,7 @@ struct AccountsList: View {
             if loading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if visible.isEmpty {
-                ContentUnavailableView(search.isEmpty ? "Входов не найдено" : "Ничего не найдено", systemImage: "person.crop.circle")
+                ContentUnavailableView(search.isEmpty ? L10n("No signed-in sites") : L10n("No results"), systemImage: "person.crop.circle")
             } else {
                 List(visible) { site in
                     HStack(spacing: 10) {
@@ -210,11 +211,11 @@ struct AccountsList: View {
                             Text(subtitle(site)).font(.system(size: 10)).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Открыть") { open(site) }.buttonStyle(.borderless)
+                        Button(L10n("Open")) { open(site) }.buttonStyle(.borderless)
                     }
                     .contextMenu {
-                        Button("Открыть сайт") { open(site) }
-                        Button("Выйти (удалить cookie сайта)", role: .destructive) { signOut(site) }
+                        Button(L10n("Open site")) { open(site) }
+                        Button(L10n("Sign out and delete site cookies"), role: .destructive) { signOut(site) }
                     }
                 }
             }
@@ -223,8 +224,8 @@ struct AccountsList: View {
     }
 
     private func subtitle(_ site: Site) -> String {
-        var text = "Активный вход"
-        if let expires = site.expires { text += " · до \(expires.formatted(date: .abbreviated, time: .omitted))" }
+        var text = L10n("Signed in")
+        if let expires = site.expires { text += L10n(" · until %1$@", "\(expires.formatted(date: .abbreviated, time: .omitted))") }
         return text
     }
 

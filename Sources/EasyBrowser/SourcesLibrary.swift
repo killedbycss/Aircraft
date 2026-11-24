@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import AppKit
 import WebKit
@@ -12,10 +13,10 @@ enum CommandShiftRAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .hardReload: "Обновить без кэша"
-        case .reader: "Режим чтения"
-        case .saveSource: "Сохранить в «Источники»"
-        case .none: "Ничего"
+        case .hardReload: L10n("Reload without cache")
+        case .reader: L10n("Reader Mode")
+        case .saveSource: L10n("Save to Sources")
+        case .none: L10n("shortcut.none")
         }
     }
 
@@ -80,15 +81,15 @@ enum SourceType: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .article: "Статья в журнале"
-        case .conference: "Доклад конференции"
-        case .book: "Книга"
-        case .chapter: "Глава книги"
-        case .thesis: "Диссертация"
-        case .report: "Отчёт"
-        case .preprint: "Препринт"
-        case .webpage: "Веб-страница"
-        case .video: "Видео"
+        case .article: L10n("Journal article")
+        case .conference: L10n("Conference paper")
+        case .book: L10n("Book")
+        case .chapter: L10n("Book chapter")
+        case .thesis: L10n("Thesis")
+        case .report: L10n("Report")
+        case .preprint: L10n("Preprint")
+        case .webpage: L10n("Web page")
+        case .video: L10n("Video")
         }
     }
 
@@ -148,7 +149,7 @@ struct SourceItem: Codable, Identifiable, Hashable, Sendable {
         case 0: ""
         case 1: creators[0].lastName
         case 2: "\(creators[0].lastName), \(creators[1].lastName)"
-        default: "\(creators[0].lastName) и др."
+        default: L10n("%1$@ et al.", "\(creators[0].lastName)")
         }
     }
 
@@ -274,7 +275,7 @@ final class SourcesStore {
 
     @discardableResult
     func createCollection(named name: String) -> UUID {
-        let collection = SourceCollection(name: name.isEmpty ? "Новая коллекция" : name)
+        let collection = SourceCollection(name: name.isEmpty ? L10n("New collection") : name)
         collections.append(collection)
         save()
         return collection.id
@@ -323,12 +324,12 @@ enum SourceCapture {
 
     static func save(from manager: TabManager) {
         guard manager.modCapabilities.contains("sources") else {
-            manager.showToast("Включите мод «Источники»: Настройки → Модификации", symbol: "books.vertical")
+            manager.showToast(L10n("Enable Sources in Settings → Mods"), symbol: "books.vertical")
             return
         }
         guard let tab = manager.activeTab, let pageURL = tab.webView?.url ?? tab.url,
               pageURL.scheme == "http" || pageURL.scheme == "https" || pageURL.isFileURL else {
-            manager.showToast("Эту страницу нельзя сохранить", symbol: "exclamationmark.triangle")
+            manager.showToast(L10n("This page cannot be saved"), symbol: "exclamationmark.triangle")
             return
         }
         let store = SourcesStore.shared
@@ -339,7 +340,7 @@ enum SourceCapture {
             item.container = pageURL.host ?? ""
             let result = store.add(item)
             if let name = copyAttachment(file, id: result.id, ext: "pdf") { store.attach(result.id, pdf: name) }
-            manager.showToast(result.existed ? "Уже в источниках — обновлено" : "PDF сохранён в источники", symbol: "books.vertical.fill")
+            manager.showToast(result.existed ? L10n("Source updated") : L10n("PDF saved to Sources"), symbol: "books.vertical.fill")
             return
         }
         guard let webView = tab.webView else { return }
@@ -347,7 +348,7 @@ enum SourceCapture {
             let page = await collect(from: webView) ?? Page(title: tab.title)
             let item = makeItem(page, url: pageURL)
             let result = store.add(item)
-            manager.showToast(result.existed ? "Уже в источниках — обновлено" : "Сохранено в источники: \(item.type.title.lowercased())",
+            manager.showToast(result.existed ? L10n("Source updated") : L10n("Saved to Sources: %1$@", "\(item.type.title.lowercased())"),
                               symbol: "books.vertical.fill")
             if let archive = try? await webView.webArchiveData(),
                let name = writeAttachment(archive, id: result.id, ext: "webarchive") {
@@ -537,7 +538,7 @@ enum Citation {
     enum Style: String, CaseIterable, Identifiable {
         case gost, apa
         var id: String { rawValue }
-        var title: String { self == .gost ? "ГОСТ Р 7.0.100" : "APA 7" }
+        var title: String { self == .gost ? L10n("GOST R 7.0.100") : "APA 7" }
     }
 
     static func format(_ item: SourceItem, style: Style, accessed: Date? = nil) -> String {

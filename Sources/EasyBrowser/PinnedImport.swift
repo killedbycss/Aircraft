@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import AppKit
 
@@ -33,7 +34,7 @@ extension BrowserImport {
     static func readPinned(_ source: Source) throws -> PinnedImportResult {
         if source == .arc {
             guard let data = try? Data(contentsOf: arcSidebarFile) else {
-                throw ImportError(message: "Не найден файл боковой панели Arc (StorableSidebar.json).")
+                throw ImportError(message: L10n("Arc sidebar file not found (StorableSidebar.json)."))
             }
             return try parseArcSidebar(data)
         }
@@ -44,8 +45,8 @@ extension BrowserImport {
     /// Dia хранит закреплённые вкладки в «Других закладках», остальные Chromium-браузеры —
     /// закрепами обычно считают панель закладок (если она пуста — «Другие закладки»).
     static func pinnedFromBookmarks(_ bookmarks: BookmarkItem, source: Source) -> PinnedImportResult {
-        let bar = bookmarks.children.first { $0.title == "Панель закладок" }
-        let other = bookmarks.children.first { $0.title == "Другие закладки" }
+        let bar = bookmarks.children.first { ["Панель закладок", "Bookmarks bar"].contains($0.title) }
+        let other = bookmarks.children.first { ["Другие закладки", "Other bookmarks"].contains($0.title) }
         let root: BookmarkItem?
         if source == .dia { root = other ?? bar } else { root = bar ?? other ?? bookmarks.children.first }
         guard let root else { return PinnedImportResult() }
@@ -55,14 +56,14 @@ extension BrowserImport {
     private static func pinnedNode(_ item: BookmarkItem) -> PinnedImportNode? {
         if let url = item.url { return .tab(title: item.title, url: url) }
         let children = item.children.compactMap(pinnedNode)
-        return children.isEmpty ? nil : .folder(title: item.title.isEmpty ? "Папка" : item.title, children: children)
+        return children.isEmpty ? nil : .folder(title: item.title.isEmpty ? L10n("Folder") : item.title, children: children)
     }
 
     static func parseArcSidebar(_ data: Data) throws -> PinnedImportResult {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let containers = (root["sidebar"] as? [String: Any])?["containers"] as? [Any],
               let main = containers.compactMap({ $0 as? [String: Any] }).first(where: { $0["items"] != nil }) else {
-            throw ImportError(message: "Не удалось разобрать боковую панель Arc.")
+            throw ImportError(message: L10n("Could not read the Arc sidebar."))
         }
         // В массивах Arc чередуются id-строки и объекты; нужны объекты.
         let items = (main["items"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
@@ -79,7 +80,7 @@ extension BrowserImport {
             let children = (item["childrenIds"] as? [String] ?? []).compactMap { node($0, depth: depth + 1) }
             guard !children.isEmpty else { return nil }
             if data["list"] != nil {
-                return .folder(title: (item["title"] as? String) ?? "Папка", children: children)
+                return .folder(title: (item["title"] as? String) ?? L10n("Folder"), children: children)
             }
             // Прочие контейнеры — просто их содержимое.
             return .folder(title: (item["title"] as? String) ?? "", children: children)
@@ -104,7 +105,7 @@ extension BrowserImport {
             guard let marker = ids.firstIndex(where: { ($0 as? String) == "pinned" }), marker + 1 < ids.count,
                   let pinnedID = ids[marker + 1] as? String else { continue }
             let nodes = children(of: pinnedID)
-            if !nodes.isEmpty { perSpace.append(((space["title"] as? String) ?? "Пространство", nodes)) }
+            if !nodes.isEmpty { perSpace.append(((space["title"] as? String) ?? L10n("Space"), nodes)) }
         }
         // Одно пространство — закрепы в корень; несколько — по папке на пространство.
         if perSpace.count == 1 {

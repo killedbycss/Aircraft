@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 import QuartzCore
@@ -315,7 +316,7 @@ final class AircraftAppDelegate: NSObject, NSApplicationDelegate {
         let profile = profileID ?? (incognito ? nil : AgentBrowser.frontmostManager(includingIncognito: false)?.profileID)
         window.contentViewController = NSHostingController(rootView: BrowserWindowRoot(
             mode: restoreID.map { .restore($0) } ?? (incognito ? .incognito : .fresh(profile))))
-        if incognito { window.title = "Инкогнито" }
+        if incognito { window.title = L10n("Incognito") }
         window.center()
         if let key = NSApp.keyWindow, key !== SettingsWindowController.shared.window {
             window.setFrameTopLeftPoint(NSPoint(x: key.frame.minX + 24, y: key.frame.maxY - 24))
@@ -386,136 +387,136 @@ struct EasyBrowserApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Новая вкладка") {
+                Button(L10n("New Tab")) {
                     NotificationCenter.default.post(name: .createHomeTab, object: NSApp.keyWindow)
                 }
                 .keyboardShortcut("t", modifiers: [.command])
-                Button("Новое окно") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() }
+                Button(L10n("New Window")) { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() }
                     .keyboardShortcut("n", modifiers: [.command])
-                Button("Новое окно инкогнито") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true) }
+                Button(L10n("New Incognito Window")) { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                 Divider()
-                Button("Открыть файл…") { browserCommand("openFile") }
+                Button(L10n("Open File…")) { browserCommand("openFile") }
                     .keyboardShortcut("o", modifiers: [.command])
             }
 
-            CommandMenu("История") {
-                Button("Показать историю") { browserCommand("showHistory") }
+            CommandMenu(L10n("History")) {
+                Button(L10n("Show History")) { browserCommand("showHistory") }
                     .keyboardShortcut("y", modifiers: [.command])
-                Button("Вернуть закрытую вкладку") { browserCommand("reopenClosedTab") }
+                Button(L10n("Reopen closed tab")) { browserCommand("reopenClosedTab") }
                     .keyboardShortcut("t", modifiers: [.command, .shift])
-                Button("Архив вкладок") { browserCommand("showArchive") }
+                Button(L10n("Tab archive")) { browserCommand("showArchive") }
                 Divider()
-                Button("Аккаунты") { browserCommand("showAccounts") }
-                Button("Загрузки") { browserCommand("showDownloads") }
+                Button(L10n("Accounts")) { browserCommand("showAccounts") }
+                Button(L10n("Downloads")) { browserCommand("showDownloads") }
                     .keyboardShortcut("l", modifiers: [.command, .option])
             }
 
-            CommandMenu("Источники") {
-                Button("Сохранить страницу в источники") { browserCommand("saveSource") }
-                Button("Открыть источники") { browserCommand("showSources") }
+            CommandMenu(L10n("Sources")) {
+                Button(L10n("Save Page to Sources")) { browserCommand("saveSource") }
+                Button(L10n("Open Sources")) { browserCommand("showSources") }
             }
 
-            CommandMenu("Закладки") {
-                Button("Добавить в закладки…") { browserCommand("addBookmark") }
+            CommandMenu(L10n("Bookmarks")) {
+                Button(L10n("Add Bookmark…")) { browserCommand("addBookmark") }
                     .keyboardShortcut("d", modifiers: [.command])
-                Button("Показать закладки") { browserCommand("showBookmarks") }
+                Button(L10n("Show Bookmarks")) { browserCommand("showBookmarks") }
                     .keyboardShortcut("b", modifiers: [.command, .shift])
                 Divider()
-                Button("Добавить сайт в Dock…") { browserCommand("addToDock") }
+                Button(L10n("Add Site to Dock…")) { browserCommand("addToDock") }
             }
 
             CommandGroup(after: .textEditing) {
-                Button("Найти на странице…") { browserCommand("find") }
+                Button(L10n("Find on Page…")) { browserCommand("find") }
                     .keyboardShortcut("f", modifiers: [.command])
-                Button("Найти следующее") { browserCommand("findNext") }
+                Button(L10n("Find Next")) { browserCommand("findNext") }
                     .keyboardShortcut("g", modifiers: [.command])
-                Button("Найти предыдущее") { browserCommand("findPrevious") }
+                Button(L10n("Find Previous")) { browserCommand("findPrevious") }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
             }
 
             CommandGroup(replacing: .appSettings) {
-                Button("Настройки…") {
+                Button(L10n("Settings…")) {
                     SettingsWindowController.shared.show()
                 }
                 .keyboardShortcut(",", modifiers: [.command])
             }
 
             CommandGroup(after: .toolbar) {
-                Button("Адрес или поиск") {
+                Button(L10n("Address or search")) {
                     NotificationCenter.default.post(name: .focusLocation, object: NSApp.keyWindow)
                 }
                 .keyboardShortcut("l", modifiers: [.command])
 
-                Button("Показать/скрыть вкладки") {
+                Button(L10n("Toggle Tab Bar")) {
                     NotificationCenter.default.post(name: .toggleSidebar, object: NSApp.keyWindow)
                 }
                 .keyboardShortcut("s", modifiers: [.control, .option])
                 Divider()
-                Button("Увеличить") { browserCommand("zoomIn") }
+                Button(L10n("Zoom In")) { browserCommand("zoomIn") }
                     .keyboardShortcut("=", modifiers: [.command])
-                Button("Уменьшить") { browserCommand("zoomOut") }
+                Button(L10n("Zoom Out")) { browserCommand("zoomOut") }
                     .keyboardShortcut("-", modifiers: [.command])
-                Button("Реальный размер") { browserCommand("zoomReset") }
+                Button(L10n("Actual Size")) { browserCommand("zoomReset") }
                     .keyboardShortcut("0", modifiers: [.command])
                 Divider()
                 // ⌘⇧R настраивается (Настройки → Сочетания клавиш), поэтому без значка в меню.
-                Button("Режим чтения") { browserCommand("toggleReader") }
-                Button("Обновить без кэша") { browserCommand("hardReload") }
+                Button(L10n("Reader Mode")) { browserCommand("toggleReader") }
+                Button(L10n("Reload without cache")) { browserCommand("hardReload") }
                     .keyboardShortcut("r", modifiers: [.command, .option])
 
             }
 
-            CommandMenu("Вкладки") {
-                Button("Spotlight текущей вкладки") {
+            CommandMenu(L10n("Tabs")) {
+                Button(L10n("Show Current URL in Spotlight")) {
                     NotificationCenter.default.post(name: .showCurrentURLSpotlight, object: NSApp.keyWindow)
                 }
 
-                Button("Новая вкладка") {
+                Button(L10n("New Tab")) {
                     NotificationCenter.default.post(name: .createHomeTab, object: NSApp.keyWindow)
                 }
 
-                Button("Закрыть вкладку") {
+                Button(L10n("Close tab")) {
                     guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
                     NotificationCenter.default.post(name: .closeActiveTab, object: window)
                 }
 
-                Button("Обновить вкладку") {
+                Button(L10n("Reload Tab")) {
                     NotificationCenter.default.post(name: .reloadActiveTab, object: NSApp.keyWindow)
                 }
                 .keyboardShortcut("r", modifiers: [.command])
 
-                Button("Скопировать ссылку") { browserCommand("copyURL") }
+                Button(L10n("Copy Link")) { browserCommand("copyURL") }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
-                Button("Выключить/включить звук") { browserCommand("toggleMute") }
+                Button(L10n("Toggle Mute")) { browserCommand("toggleMute") }
                     .keyboardShortcut("m", modifiers: [.command, .shift])
-                Button("Картинка в картинке") { browserCommand("pictureInPicture") }
-                Button("Новая папка") { browserCommand("newFolder") }
+                Button(L10n("Picture in Picture")) { browserCommand("pictureInPicture") }
+                Button(L10n("New folder")) { browserCommand("newFolder") }
 
                 Divider()
 
-                Button("Предыдущая вкладка") { browserCommand("previousTab") }
-                Button("Следующая вкладка") { browserCommand("nextTab") }
+                Button(L10n("Previous Tab")) { browserCommand("previousTab") }
+                Button(L10n("Next Tab")) { browserCommand("nextTab") }
 
                 Divider()
 
-                Button("Назад") {
+                Button(L10n("Back")) {
                     NotificationCenter.default.post(name: .goBack, object: NSApp.keyWindow)
                 }
                 .keyboardShortcut("[", modifiers: [.command])
 
-                Button("Вперёд") {
+                Button(L10n("Forward")) {
                     NotificationCenter.default.post(name: .goForward, object: NSApp.keyWindow)
                 }
                 .keyboardShortcut("]", modifiers: [.command])
 
                 Divider()
 
-                Button("Инструменты разработчика (F12)") {
+                Button(L10n("Developer Tools (F12)")) {
                     NotificationCenter.default.post(name: .toggleWebInspector, object: NSApp.keyWindow)
                 }
 
-                Button("Скрыть элемент на странице…") {
+                Button(L10n("Hide Page Element…")) {
                     if NSApp.keyWindow === SettingsWindowController.shared.window {
                         ElementPicker.startInFrontmostWindow()
                     } else {

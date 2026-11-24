@@ -1,3 +1,4 @@
+import AircraftLanguage
 import AppKit
 import WebKit
 
@@ -112,7 +113,7 @@ final class AgentBrowser {
         case "browser_open_tab": return try await openTab(args)
         case "browser_select_tab":
             let (manager, id) = try target(args, focus: true)
-            AgentActivity.shared.mark(tabID: id, action: "Переключение вкладки")
+            AgentActivity.shared.mark(tabID: id, action: L10n("Switching tabs"))
             return .text("Selected tab \(id.uuidString): \(manager.tabs.first { $0.id == id }?.title ?? "")")
         case "browser_close_tab":
             let (manager, id) = try target(args, focus: false)
@@ -166,7 +167,7 @@ final class AgentBrowser {
         let url = input.isEmpty ? nil : try Self.resolveURL(input)
         let background = args["background"] as? Bool ?? false
         let id = manager.createNewTab(url: url, selectNewTab: !background, afterTabID: manager.activeTabID)
-        AgentActivity.shared.mark(tabID: id, action: "Новая вкладка")
+        AgentActivity.shared.mark(tabID: id, action: L10n("New Tab"))
         guard url != nil, let webView = manager.webView(for: id) else {
             return .text("Opened empty tab \(id.uuidString)")
         }
@@ -189,7 +190,7 @@ final class AgentBrowser {
         default: throw AgentError("action must be enter, exit or toggle")
         }
         guard wantFull != isFull else { return .text(isFull ? "Window is already fullscreen." : "Window is not fullscreen.") }
-        AgentActivity.shared.mark(tabID: id, action: wantFull ? "Полный экран" : "Выход из полного экрана")
+        AgentActivity.shared.mark(tabID: id, action: wantFull ? L10n("Entering full screen") : L10n("Leaving full screen"))
         if window.isMiniaturized { window.deminiaturize(nil) }
         window.toggleFullScreen(nil)
         // Анимация перехода в полноэкранный режим длится около секунды.
@@ -207,7 +208,7 @@ final class AgentBrowser {
         }
         _ = try Self.resolveURL(input)
         let (manager, id) = try target(args, focus: true)
-        AgentActivity.shared.mark(tabID: id, action: "Переход: \(input)")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Opening %1$@", "\(input)"))
         manager.navigateActiveTab(to: input)
         guard let webView = manager.webView(for: id) else { throw AgentError("Could not load \(input)") }
         await waitForLoad(webView)
@@ -229,7 +230,7 @@ final class AgentBrowser {
         default:
             throw AgentError("action must be back, forward or reload")
         }
-        AgentActivity.shared.mark(tabID: id, action: "Навигация")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Navigating"))
         await settle(webView)
         return .text(pageInfo(webView))
     }
@@ -239,7 +240,7 @@ final class AgentBrowser {
     private func snapshot(_ args: [String: Any]) async throws -> Output {
         let (manager, id) = try target(args, focus: false)
         let webView = try webView(manager, id)
-        AgentActivity.shared.mark(tabID: id, action: "Читает страницу")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Reading page"))
         let max = (args["maxElements"] as? Int).map { Swift.max(10, Swift.min($0, 2000)) } ?? 250
         let result = try await runJSON(webView, Self.snapshotScript, args: ["max": max])
         var text = "URL: \(result["url"] as? String ?? "")\nTitle: \(result["title"] as? String ?? "")\n"
@@ -255,7 +256,7 @@ final class AgentBrowser {
     private func getText(_ args: [String: Any]) async throws -> Output {
         let (manager, id) = try target(args, focus: false)
         let webView = try webView(manager, id)
-        AgentActivity.shared.mark(tabID: id, action: "Читает текст")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Reading text"))
         let offset = Swift.max(0, args["offset"] as? Int ?? 0)
         let maxChars = Swift.max(100, Swift.min(args["maxChars"] as? Int ?? 20_000, 200_000))
         let result = try await runJSON(webView, #"""
@@ -274,7 +275,7 @@ final class AgentBrowser {
     private func screenshot(_ args: [String: Any]) async throws -> Output {
         let (manager, id) = try target(args, focus: true)
         let webView = try webView(manager, id)
-        AgentActivity.shared.mark(tabID: id, action: "Скриншот")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Taking screenshot"))
         guard await waitForWindow(webView) else { throw AgentError("The tab is not on screen, so it cannot be captured.") }
         try? await Task.sleep(for: .milliseconds(120))
         let image = try await webView.takeSnapshot(configuration: nil)
@@ -361,7 +362,7 @@ final class AgentBrowser {
             throw AgentError("Pass ref, text, or x and y.")
         }
 
-        AgentActivity.shared.mark(tabID: id, action: "Клик: \(description)")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Clicking %1$@", "\(description)"))
         var method = "native mouse events"
         if !(await waitForWindow(webView)) || !nativeClick(webView, x: x, y: y, count: count) {
             method = "JavaScript click()"
@@ -381,7 +382,7 @@ final class AgentBrowser {
         let (manager, id) = try target(args, focus: true)
         let webView = try webView(manager, id)
         guard let text = args["text"] as? String else { throw AgentError("text is required") }
-        AgentActivity.shared.mark(tabID: id, action: "Ввод текста")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Entering text"))
         if let window = webView.window { window.makeFirstResponder(webView) }
         let result = try await runJSON(webView, Self.typeScript, args: [
             "ref": args["ref"] as? String ?? "",
@@ -401,7 +402,7 @@ final class AgentBrowser {
         let (manager, id) = try target(args, focus: true)
         let webView = try webView(manager, id)
         guard let key = args["key"] as? String, !key.isEmpty else { throw AgentError("key is required") }
-        AgentActivity.shared.mark(tabID: id, action: "Клавиша \(key)")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Pressing %1$@", "\(key)"))
         let method = try await sendKey(key, to: webView)
         await settle(webView)
         return .text("Pressed \(key) using \(method).\n" + pageInfo(webView))
@@ -410,7 +411,7 @@ final class AgentBrowser {
     private func scroll(_ args: [String: Any]) async throws -> Output {
         let (manager, id) = try target(args, focus: false)
         let webView = try webView(manager, id)
-        AgentActivity.shared.mark(tabID: id, action: "Прокрутка")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Scrolling"))
         let result = try await runJSON(webView, Self.scrollScript, args: [
             "ref": args["ref"] as? String ?? "",
             "direction": args["direction"] as? String ?? "down",
@@ -423,7 +424,7 @@ final class AgentBrowser {
     private func selectOption(_ args: [String: Any]) async throws -> Output {
         let (manager, id) = try target(args, focus: true)
         let webView = try webView(manager, id)
-        AgentActivity.shared.mark(tabID: id, action: "Выбор варианта")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Selecting an option"))
         let result = try await runJSON(webView, #"""
             const el = byRef(args.ref);
             if (!el) return JSON.stringify({ error: 'No element with ref ' + args.ref + '. Take a new browser_snapshot.' });
@@ -449,7 +450,7 @@ final class AgentBrowser {
         let text = args["text"] as? String
         let textGone = args["textGone"] as? String
         let selector = args["selector"] as? String
-        AgentActivity.shared.mark(tabID: id, action: "Ожидание")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Waiting"))
         let deadline = Date().addingTimeInterval(timeout)
         guard text != nil || textGone != nil || selector != nil else {
             await waitForLoad(webView, timeout: timeout)
@@ -474,7 +475,7 @@ final class AgentBrowser {
         let (manager, id) = try target(args, focus: false)
         let webView = try webView(manager, id)
         guard let script = args["script"] as? String, !script.isEmpty else { throw AgentError("script is required") }
-        AgentActivity.shared.mark(tabID: id, action: "Выполняет JavaScript")
+        AgentActivity.shared.mark(tabID: id, action: L10n("Running JavaScript"))
         let serializer = #"""
             const __aircraftSerialize = (r) => {
                 if (r === undefined) return 'undefined';

@@ -1,3 +1,4 @@
+import AircraftLanguage
 import CryptoKit
 import Foundation
 import Observation
@@ -9,10 +10,10 @@ struct FilterListInfo: Codable, Identifiable, Hashable {
 
         var title: String {
             switch self {
-            case .ads: "Реклама"
-            case .privacy: "Приватность"
-            case .annoyances: "Раздражители"
-            case .custom: "Свои подписки"
+            case .ads: L10n("Ads")
+            case .privacy: L10n("filters.privacy")
+            case .annoyances: L10n("Annoyances")
+            case .custom: L10n("Custom subscriptions")
             }
         }
     }
@@ -44,43 +45,43 @@ final class FilterListStore {
 
     static let catalog: [FilterListInfo] = [
         FilterListInfo(id: "easylist", title: "EasyList",
-                       summary: "Основной международный список: рекламные сети, баннеры, рекламные блоки",
+                       summary: L10n("International ad networks and banners"),
                        url: "https://easylist.to/easylist/easylist.txt", group: .ads, homepage: "https://easylist.to"),
-        FilterListInfo(id: "adguard-russian", title: "AdGuard — русский",
-                       summary: "Реклама на русскоязычных сайтах, Яндекс, VK, Mail.ru. Версия для Safari/WebKit",
+        FilterListInfo(id: "adguard-russian", title: L10n("AdGuard Russian"),
+                       summary: L10n("Ads on Russian-language sites, including Yandex, VK and Mail.ru. WebKit version."),
                        url: "https://filters.adtidy.org/extension/safari/filters/1.txt", group: .ads, homepage: "https://adguard.com"),
         FilterListInfo(id: "ruadlist", title: "RU AdList",
-                       summary: "Русскоязычный список от сообщества easylist-ru",
+                       summary: L10n("Russian-language community list from easylist-ru"),
                        url: "https://easylist-downloads.adblockplus.org/advblock.txt", group: .ads),
         FilterListInfo(id: "adguard-base", title: "AdGuard Base",
-                       summary: "Большой основной список AdGuard. Сильно пересекается с EasyList, долго собирается",
+                       summary: L10n("Large AdGuard list. Overlaps with EasyList and takes longer to compile."),
                        url: "https://filters.adtidy.org/extension/safari/filters/2.txt", group: .ads, homepage: "https://adguard.com"),
         FilterListInfo(id: "ublock-filters", title: "uBlock filters",
-                       summary: "Собственный список uBlock Origin (часть правил требует расширения и пропускается)",
+                       summary: L10n("uBlock Origin list. Rules that require its extension are skipped."),
                        url: "https://ublockorigin.github.io/uAssets/filters/filters.txt", group: .ads),
         FilterListInfo(id: "peter-lowe", title: "Peter Lowe’s list",
-                       summary: "Компактный список рекламных и следящих серверов",
+                       summary: L10n("Compact list of ad and tracking servers"),
                        url: "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&mimetype=plaintext", group: .ads),
         FilterListInfo(id: "easyprivacy", title: "EasyPrivacy",
-                       summary: "Счётчики, пиксели и сбор данных о посетителях",
+                       summary: L10n("Tracking pixels and visitor analytics"),
                        url: "https://easylist.to/easylist/easyprivacy.txt", group: .privacy, homepage: "https://easylist.to"),
         FilterListInfo(id: "adguard-tracking", title: "AdGuard Tracking Protection",
-                       summary: "Трекеры и аналитика по версии AdGuard",
+                       summary: L10n("AdGuard trackers and analytics"),
                        url: "https://filters.adtidy.org/extension/safari/filters/3.txt", group: .privacy),
-        FilterListInfo(id: "adguard-social", title: "Кнопки соцсетей",
-                       summary: "Виджеты «Поделиться», «Мне нравится» и встроенные ленты соцсетей",
+        FilterListInfo(id: "adguard-social", title: L10n("Social buttons"),
+                       summary: L10n("Share buttons, likes and embedded social feeds"),
                        url: "https://filters.adtidy.org/extension/safari/filters/4.txt", group: .privacy),
-        FilterListInfo(id: "adguard-cookies", title: "Уведомления о cookie",
-                       summary: "Прячет баннеры «Мы используем cookie»",
+        FilterListInfo(id: "adguard-cookies", title: L10n("Cookie notices"),
+                       summary: L10n("Hides cookie banners"),
                        url: "https://filters.adtidy.org/extension/safari/filters/18.txt", group: .annoyances),
-        FilterListInfo(id: "adguard-popups", title: "Всплывающие окна",
-                       summary: "Подписки на рассылки, push-уведомления и прочие окна поверх сайта",
+        FilterListInfo(id: "adguard-popups", title: L10n("Pop-ups"),
+                       summary: L10n("Newsletter prompts, push notifications and overlays"),
                        url: "https://filters.adtidy.org/extension/safari/filters/19.txt", group: .annoyances),
-        FilterListInfo(id: "adguard-widgets", title: "Виджеты",
-                       summary: "Чаты поддержки, онлайн-консультанты и похожие виджеты",
+        FilterListInfo(id: "adguard-widgets", title: L10n("Widgets"),
+                       summary: L10n("Support chats and online assistants"),
                        url: "https://filters.adtidy.org/extension/safari/filters/22.txt", group: .annoyances),
-        FilterListInfo(id: "adguard-other-annoyances", title: "Прочие раздражители",
-                       summary: "Баннеры приложений, напоминания и другие отвлекающие элементы",
+        FilterListInfo(id: "adguard-other-annoyances", title: L10n("Other annoyances"),
+                       summary: L10n("App banners and reminders"),
                        url: "https://filters.adtidy.org/extension/safari/filters/21.txt", group: .annoyances)
     ]
     static let defaultEnabled: Set<String> = ["easylist", "adguard-russian"]
@@ -172,9 +173,9 @@ final class FilterListStore {
     func addCustomList(urlString: String) async -> String? {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), url.scheme == "https" || url.scheme == "http", url.host != nil else {
-            return "Нужен адрес вида https://…/list.txt"
+            return L10n("Enter a list URL such as https://example.com/list.txt")
         }
-        guard !allLists.contains(where: { $0.url == trimmed }) else { return "Этот список уже добавлен" }
+        guard !allLists.contains(where: { $0.url == trimmed }) else { return L10n("List already added") }
         let id = "custom-" + String(SHA256.hash(data: Data(trimmed.utf8)).map { String(format: "%02x", $0) }.joined().prefix(10))
         let info = FilterListInfo(id: id, title: url.host ?? trimmed, summary: trimmed, url: trimmed, group: .custom)
         customLists.append(info)
@@ -253,19 +254,19 @@ final class FilterListStore {
 
     /// Текст списка и его название из заголовка «! Title:».
     nonisolated private static func download(_ list: FilterListInfo) async -> Result<(String, String?), Error> {
-        guard let url = URL(string: list.url) else { return .failure(DownloadError(message: "Неверный адрес")) }
+        guard let url = URL(string: list.url) else { return .failure(DownloadError(message: L10n("Invalid URL"))) }
         do {
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60)
             request.setValue("Aircraft", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await URLSession.shared.data(for: request)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                return .failure(DownloadError(message: "Сервер ответил \(http.statusCode)"))
+                return .failure(DownloadError(message: L10n("Server returned %1$@", "\(http.statusCode)")))
             }
             // Страница ошибки вместо списка: смотрим только начало файла — в самих правилах «<html» бывает.
             guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1),
                   !text.isEmpty,
                   !text.prefix(512).trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("<") else {
-                return .failure(DownloadError(message: "Это не список фильтров"))
+                return .failure(DownloadError(message: L10n("Invalid filter list")))
             }
             let title = text.split(separator: "\n", maxSplits: 40).lazy
                 .first { $0.hasPrefix("! Title:") }

@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 import WebKit
@@ -168,7 +169,7 @@ extension TabManager {
         guard let tab = tabs.first(where: { $0.webView === webView }) else { return true }
         let host = FaviconCache.key(for: webView.url) ?? ""
         guard let app = AppLinks.application(for: url) else {
-            if userClicked { showToast("Нет приложения для ссылок «\(scheme):»", symbol: "questionmark.app") }
+            if userClicked { showToast(L10n("No app handles %1$@: links", "\(scheme)"), symbol: "questionmark.app") }
             return true
         }
         if (userClicked && AppLinks.directSchemes.contains(scheme)) || AppLinks.isAlwaysAllowed(host: host, scheme: scheme) {
@@ -219,32 +220,32 @@ struct AppLinkBanner: View {
                 .resizable()
                 .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 1) {
-                Text(offer.origin == .requested ? "Открыть в приложении «\(offer.appName)»?" : "Открыть в приложении «\(offer.appName)»")
+                Text(offer.origin == .requested ? L10n("Open in %1$@?", "\(offer.appName)") : L10n("Open in %1$@", "\(offer.appName)"))
                     .fontWeight(.semibold)
                 Text(offer.origin == .requested
-                     ? "\(offer.host.isEmpty ? "Страница" : offer.host) хочет открыть приложение"
-                     : "Ссылку можно открыть в установленном приложении")
+                     ? L10n("%1$@ wants to open an app", "\(offer.host.isEmpty ? L10n("Page") : offer.host)")
+                     : L10n("Open this link in the installed app."))
                     .foregroundStyle(.secondary)
             }
             .lineLimit(1)
             Spacer(minLength: 8)
             if offer.origin == .requested {
-                Button("Не открывать") { tabManager.dismissAppLink(offer) }
+                Button(L10n("Don’t open")) { tabManager.dismissAppLink(offer) }
                 if !offer.host.isEmpty {
-                    Button("Всегда для сайта") { tabManager.openAppLink(offer, always: true) }
-                        .help("Больше не спрашивать на \(offer.host)")
+                    Button(L10n("Always allow for this site")) { tabManager.openAppLink(offer, always: true) }
+                        .help(L10n("Always allow on %1$@", "\(offer.host)"))
                 }
-                Button("Открыть") { tabManager.openAppLink(offer) }
+                Button(L10n("Open")) { tabManager.openAppLink(offer) }
                     .keyboardShortcut(.defaultAction)
             } else {
-                Button("Открыть") { tabManager.openAppLink(offer) }
+                Button(L10n("Open")) { tabManager.openAppLink(offer) }
                     .buttonStyle(.borderedProminent)
                 Button { tabManager.dismissAppLink(offer) } label: {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Не предлагать для \(offer.host) до перезапуска")
+                .help(L10n("Hide suggestions for %1$@ until restart", "\(offer.host)"))
             }
         }
         .font(.system(size: 11, weight: .medium))
@@ -273,7 +274,7 @@ struct AppLinkAddressButton: View {
                     .frame(width: fontSize * 1.5, height: fontSize * 1.5)
             }
             .buttonStyle(.plain)
-            .help("Открыть в приложении «\(offer.appName)»")
+            .help(L10n("Open in %1$@", "\(offer.appName)"))
         }
     }
 }
@@ -285,22 +286,22 @@ struct AppLinksSettingsSection: View {
 
     var body: some View {
         Section {
-            Toggle("Предлагать открыть ссылку в приложении", isOn: $enabled)
+            Toggle(L10n("Suggest opening links in apps"), isOn: $enabled)
             if !remembered.isEmpty {
-                LabeledContent("Открываются без вопроса") {
+                LabeledContent(L10n("Allowed without asking")) {
                     Text(remembered.map { $0.replacingOccurrences(of: "|", with: " → ") + ":" }.joined(separator: ", "))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
-                Button("Снова спрашивать для всех сайтов") {
+                Button(L10n("Ask again for all sites")) {
                     UserDefaults.standard.removeObject(forKey: AppLinks.alwaysKey)
                     remembered = []
                 }
             }
         } header: {
-            Text("Приложения")
+            Text(L10n("Applications"))
         } footer: {
-            Text("Ссылки на созвоны Zoom и Teams, Telegram, Spotify, Discord, Slack, Notion, Figma, Linear и Apple Music можно открыть в установленном приложении. Если страница сама открывает приложение, Aircraft спросит разрешения, как Safari.")
+            Text(L10n("Supported links can open in installed apps. Aircraft asks when a site tries to launch one."))
                 .foregroundStyle(.secondary)
         }
         .onAppear { remembered = UserDefaults.standard.stringArray(forKey: AppLinks.alwaysKey) ?? [] }

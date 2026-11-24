@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 
@@ -33,22 +34,22 @@ enum PanelButton: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .togglePanel: "Закрепить / скрыть панель"
-        case .navigation: "Назад и вперёд"
-        case .reload: "Обновить страницу"
-        case .history: "История и аккаунты"
-        case .downloads: "Загрузки"
-        case .createMenu: "Создать: папку, окно…"
-        case .splitView: "Разделить экран"
-        case .sources: "Источники"
-        case .bookmark: "Закладка на страницу"
-        case .readerMode: "Режим чтения"
-        case .copyURL: "Скопировать адрес"
-        case .newWindow: "Новое окно"
-        case .incognitoWindow: "Окно инкогнито"
-        case .settings: "Настройки"
+        case .togglePanel: L10n("Pin / hide panel")
+        case .navigation: L10n("Back and forward")
+        case .reload: L10n("Reload page")
+        case .history: L10n("History and accounts")
+        case .downloads: L10n("Downloads")
+        case .createMenu: L10n("New folder or window…")
+        case .splitView: L10n("Split screen")
+        case .sources: L10n("Sources")
+        case .bookmark: L10n("Bookmark page")
+        case .readerMode: L10n("Reader Mode")
+        case .copyURL: L10n("Copy address")
+        case .newWindow: L10n("New Window")
+        case .incognitoWindow: L10n("Incognito window")
+        case .settings: L10n("Settings")
         case .devtools: "Web Inspector"
-        case .historyPanel: "Панель истории (мод)"
+        case .historyPanel: L10n("History panel (mod)")
         }
     }
 
@@ -152,7 +153,7 @@ struct PanelButtonView: View {
         switch button {
         case .togglePanel:
             ChromeIconButton(symbol: togglePanelSymbol,
-                             help: (panelShown ? "Открепить и скрыть панель вкладок" : "Закрепить панель вкладок") + " (⌃⌥S)",
+                             help: (panelShown ? L10n("Unpin and hide tab bar") : L10n("Pin tab bar")) + " (⌃⌥S)",
                              fontSize: fontSize) {
                 NotificationCenter.default.post(name: .toggleSidebar, object: tabManager.hostWindow ?? NSApp.keyWindow)
             }
@@ -160,32 +161,32 @@ struct PanelButtonView: View {
             NavigationArrows(fontSize: fontSize)
         case .reload:
             let loading = tabManager.activeTab?.isLoading == true
-            icon(loading ? "xmark" : "arrow.clockwise", loading ? "Остановить (⌘.)" : "Обновить страницу (⌘R)",
+            icon(loading ? "xmark" : "arrow.clockwise", loading ? L10n("Stop (⌘.)") : L10n("Reload page (⌘R)"),
                  enabled: tabManager.activeTab?.url != nil) { tabManager.reloadActiveTab() }
         case .history:
-            icon(button.symbol, "История и аккаунты (⌘Y)") { LibraryWindow.show(.history, for: tabManager) }
+            icon(button.symbol, L10n("History and accounts (⌘Y)")) { LibraryWindow.show(.history, for: tabManager) }
         case .downloads:
             ChromeIconButton(symbol: downloads.activeCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle",
-                             help: "Загрузки (⌥⌘L)", fontSize: fontSize, active: downloads.activeCount > 0) {
+                             help: L10n("Downloads (⌥⌘L)"), fontSize: fontSize, active: downloads.activeCount > 0) {
                 LibraryWindow.show(.downloads, for: tabManager)
             }
         case .createMenu:
             NewItemMenu(fontSize: fontSize)
         case .splitView:
-            icon(button.symbol, "Разделить экран", enabled: tabManager.activeTab?.url != nil) { tabManager.startSplitView() }
+            icon(button.symbol, L10n("Split screen"), enabled: tabManager.activeTab?.url != nil) { tabManager.startSplitView() }
         case .sources:
-            icon(button.symbol, "Источники · ⌘⇧S — сохранить страницу") { SourcesWindow.show(for: tabManager) }
+            icon(button.symbol, L10n("Sources · ⌘⇧S to save page")) { SourcesWindow.show(for: tabManager) }
         case .bookmark:
             let saved = tabManager.activeTab?.url.map { tabManager.bookmarks.contains($0) } ?? false
-            icon(saved ? "bookmark.fill" : "bookmark", "Закладка (⌘D)", enabled: tabManager.activeTab?.url != nil) {
+            icon(saved ? "bookmark.fill" : "bookmark", L10n("Bookmark (⌘D)"), enabled: tabManager.activeTab?.url != nil) {
                 tabManager.bookmarkEditorVisible.toggle()
             }
         case .readerMode:
             let tab = tabManager.activeTab
-            icon(tab?.isReaderActive == true ? "doc.plaintext.fill" : "doc.plaintext", "Режим чтения (⌘⇧R)",
+            icon(tab?.isReaderActive == true ? "doc.plaintext.fill" : "doc.plaintext", L10n("Reader mode (⌘⇧R)"),
                  enabled: tab?.isReaderable == true || tab?.isReaderActive == true) { tabManager.toggleReaderMode() }
         case .copyURL:
-            icon(copied ? "checkmark" : "doc.on.doc", "Скопировать адрес (⌘⇧C)", enabled: tabManager.activeTab?.url != nil) {
+            icon(copied ? "checkmark" : "doc.on.doc", L10n("Copy address (⌘⇧C)"), enabled: tabManager.activeTab?.url != nil) {
                 guard let value = tabManager.activeTab?.url?.absoluteString else { return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(value, forType: .string)
@@ -193,19 +194,19 @@ struct PanelButtonView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
             }
         case .newWindow:
-            icon(button.symbol, "Новое окно (⌘N)") { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() }
+            icon(button.symbol, L10n("New window (⌘N)")) { (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow() }
         case .incognitoWindow:
-            icon(button.symbol, "Окно инкогнито (⇧⌘N)") {
+            icon(button.symbol, L10n("Incognito window (⇧⌘N)")) {
                 (NSApp.delegate as? AircraftAppDelegate)?.openNewBrowserWindow(incognito: true)
             }
         case .settings:
-            icon(button.symbol, "Настройки (⌘,)") {
+            icon(button.symbol, L10n("Settings (⌘,)")) {
                 NotificationCenter.default.post(name: .openSettings, object: tabManager.hostWindow ?? NSApp.keyWindow)
             }
         case .devtools:
             icon(button.symbol, "Web Inspector") { tabManager.toggleModPanel("devtools") }
         case .historyPanel:
-            icon(button.symbol, "Панель «История и аккаунты»") { tabManager.toggleModPanel("historyAccounts") }
+            icon(button.symbol, L10n("History and accounts panel")) { tabManager.toggleModPanel("historyAccounts") }
         }
     }
 
@@ -240,7 +241,7 @@ struct PanelButtonsEditor: View {
 
     var body: some View {
         if buttons.isEmpty {
-            Text("Кнопок нет — в панели останутся вкладки, «Новая вкладка» и профиль.")
+            Text(L10n("Only tabs, New Tab and the profile switcher remain."))
                 .foregroundStyle(.secondary)
         }
         ForEach(Array(buttons.enumerated()), id: \.element) { index, button in
@@ -253,7 +254,7 @@ struct PanelButtonsEditor: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(button.title)
                     if let capability = button.requiredCapability {
-                        Text("Видна, когда включён мод «\(capability)»")
+                        Text(L10n("Requires the %1$@ mod", "\(capability)"))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -261,12 +262,12 @@ struct PanelButtonsEditor: View {
                 Spacer()
                 Button { move(from: index, by: -1) } label: { Image(systemName: "chevron.up") }
                     .disabled(index == 0)
-                    .help("Выше")
+                    .help(L10n("Move up"))
                 Button { move(from: index, by: 1) } label: { Image(systemName: "chevron.down") }
                     .disabled(index == buttons.count - 1)
-                    .help("Ниже")
+                    .help(L10n("Move down"))
                 Button { remove(button) } label: { Image(systemName: "minus.circle.fill").foregroundStyle(.red) }
-                    .help("Убрать")
+                    .help(L10n("Remove"))
             }
             .buttonStyle(.borderless)
         }
@@ -283,12 +284,12 @@ struct PanelButtonsEditor: View {
                     }
                 }
             } label: {
-                Label("Добавить кнопку", systemImage: "plus")
+                Label(L10n("Add button"), systemImage: "plus")
             }
             .fixedSize()
             .disabled(available.isEmpty)
             Spacer()
-            Button("Как было по умолчанию") { stored = PanelButton.encode(PanelButton.defaults) }
+            Button(L10n("Restore defaults")) { stored = PanelButton.encode(PanelButton.defaults) }
                 .disabled(buttons == PanelButton.defaults)
         }
     }

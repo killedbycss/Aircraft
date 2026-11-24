@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 
@@ -16,9 +17,9 @@ enum SiteIdentity: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .safari: "Safari (рекомендуется)"
-        case .chromeForGoogle: "Chrome — только для Google"
-        case .chrome: "Chrome — для всех сайтов"
+        case .safari: L10n("Safari (recommended)")
+        case .chromeForGoogle: L10n("Chrome for Google only")
+        case .chrome: L10n("Chrome for all sites")
         }
     }
 

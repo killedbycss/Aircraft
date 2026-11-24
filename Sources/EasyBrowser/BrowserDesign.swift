@@ -36,3 +36,12 @@ enum BrowserDesign {
         static let treeIndent: CGFloat = 12
     }
 }
+
+struct SettingsSymbolStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(width: 26, height: 26)
+    }
+}

@@ -1,0 +1,4 @@
+"NSCameraUsageDescription" = "Sites can request camera access for video calls.";
+"NSMicrophoneUsageDescription" = "Sites can request microphone access for calls and recordings.";
+"NSLocationUsageDescription" = "Sites can request your location for maps.";
+"NSLocationWhenInUseUsageDescription" = "Sites can request your location for maps.";

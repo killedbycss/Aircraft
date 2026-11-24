@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 import Observation
@@ -49,7 +50,7 @@ struct AgentActivityOverlay: View {
                 HStack(spacing: 7) {
                     Image(systemName: "sparkles")
                         .symbolEffect(.pulse)
-                    Text("Агент управляет вкладкой")
+                    Text(L10n("Agent is controlling this tab"))
                         .fontWeight(.semibold)
                     if !activity.action.isEmpty {
                         Text("· \(activity.action)")
@@ -169,37 +170,34 @@ struct AgentSettingsPane: View {
             Section {
                 HStack(spacing: 12) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(Color.teal.gradient, in: RoundedRectangle(cornerRadius: 8))
+                        .modifier(SettingsSymbolStyle())
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Разрешить агентам управлять браузером")
+                        Text(L10n("Allow agents to control Aircraft"))
                         Text(statusText)
                             .font(.system(size: 11))
                             .foregroundStyle(statusColor)
                     }
                     Spacer()
-                    Toggle("", isOn: $enabled)
+                    Toggle(L10n("Allow agents to control Aircraft"), isOn: $enabled)
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
                 .padding(.vertical, 2)
 
                 HStack {
-                    Text("Порт")
+                    Text(L10n("Port"))
                     Spacer()
                     TextField("", text: $portText)
                         .frame(width: 80)
                         .multilineTextAlignment(.trailing)
                         .onSubmit(applyPort)
-                    Button("Применить", action: applyPort)
+                    Button(L10n("Apply"), action: applyPort)
                         .disabled(Int(portText) == storedPort)
                 }
             } header: {
-                Text("MCP-сервер")
+                Text(L10n("MCP server"))
             } footer: {
-                Text("Агенты подключаются по протоколу MCP к \(AgentServer.endpointURL). Сервер слушает только этот компьютер и пускает лишь тех, у кого есть токен. Агент работает в ваших вкладках с вашими входами на сайты — включайте только для агентов, которым доверяете.")
+                Text(L10n("Agents connect locally at %1$@ with a token. They can use your signed-in tabs. Only grant access to agents you trust.", "\(AgentServer.endpointURL)"))
                     .foregroundStyle(.secondary)
             }
 
@@ -215,28 +213,28 @@ struct AgentSettingsPane: View {
                         Image(systemName: revealToken ? "eye.slash" : "eye")
                     }
                     .buttonStyle(.borderless)
-                    .help(revealToken ? "Скрыть" : "Показать")
+                    .help(revealToken ? L10n("Hide") : L10n("Show"))
                     copyButton("token", token)
-                    Button("Новый токен") {
+                    Button(L10n("New token")) {
                         token = AgentServer.regenerateToken()
                         AgentServer.shared.applySettings()
                     }
                 }
             } header: {
-                Text("Токен доступа")
+                Text(L10n("Access token"))
             } footer: {
-                Text("Новый токен сразу отключает всех подключённых агентов. aircraft-mcp подхватывает его сам.")
+                Text(L10n("A new token disconnects all agents. aircraft-mcp picks it up automatically."))
                     .foregroundStyle(.secondary)
             }
 
             Section {
-                commandRow("Claude Code (через aircraft-mcp)", stdioCommand, id: "stdio")
-                commandRow("Claude Code (напрямую по HTTP)", httpCommand, id: "http")
-                commandRow("Claude Desktop, Cursor и другие (JSON)", jsonConfig, id: "json")
+                commandRow(L10n("Claude Code via aircraft-mcp"), stdioCommand, id: "stdio")
+                commandRow(L10n("Claude Code via HTTP"), httpCommand, id: "http")
+                commandRow(L10n("Claude Desktop, Cursor and others (JSON)"), jsonConfig, id: "json")
             } header: {
-                Text("Подключение")
+                Text(L10n("Connection"))
             } footer: {
-                Text("aircraft-mcp сам находит запущенный Aircraft и при необходимости запускает его. Если перенесёте Aircraft.app в другую папку, обновите путь в настройках агента.")
+                Text(L10n("aircraft-mcp starts Aircraft when needed. If you move Aircraft.app, update the path in your agent settings."))
                     .foregroundStyle(.secondary)
             }
         }
@@ -255,10 +253,10 @@ struct AgentSettingsPane: View {
 
     private var statusText: String {
         switch state {
-        case .stopped: "Выключено"
-        case .starting: "Запускается…"
-        case .running(let port): "Работает на 127.0.0.1:\(port)"
-        case .failed(let message): "Ошибка: \(message)"
+        case .stopped: L10n("Off")
+        case .starting: L10n("Starting…")
+        case .running(let port): L10n("Listening on 127.0.0.1:%1$@", "\(port)")
+        case .failed(let message): L10n("Error: %1$@", "\(message)")
         }
     }
 
@@ -308,6 +306,6 @@ struct AgentSettingsPane: View {
             Image(systemName: copied == id ? "checkmark" : "doc.on.doc")
         }
         .buttonStyle(.borderless)
-        .help("Скопировать")
+        .help(L10n("action.copy"))
     }
 }

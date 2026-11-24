@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import Observation
 
@@ -178,7 +179,7 @@ public final class HistoryStore {
     }
 
     static func displayHost(_ url: URL) -> String {
-        guard let host = url.host?.lowercased() else { return url.isFileURL ? "Файлы" : "" }
+        guard let host = url.host?.lowercased() else { return url.isFileURL ? L10n("Files") : "" }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 

@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
@@ -21,7 +22,7 @@ final class SourcesWindow: NSObject, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 640),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
-        window.title = "Источники"
+        window.title = L10n("Sources")
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.minSize = NSSize(width: 760, height: 420)
@@ -70,18 +71,20 @@ private struct SourcesView: View {
                 toolbar
                 Divider()
                 if visible.isEmpty {
-                    ContentUnavailableView(store.items.isEmpty ? "Источников пока нет" : "Ничего не найдено",
+                    ContentUnavailableView(store.items.isEmpty ? L10n("No sources") : L10n("No results"),
                                            systemImage: "books.vertical",
                                            description: Text(store.items.isEmpty
-                                               ? "Откройте статью или страницу и нажмите «Сохранить в источники» (⌘⇧S). Авторы, журнал, DOI и PDF подтянутся сами."
-                                               : "Измените запрос или выберите другую коллекцию."))
+                                               ? L10n("Open a page and press ⌘⇧S to save it with its metadata and PDF when available.")
+                                               : L10n("Try another query or collection.")))
                 } else {
                     table
                 }
             }
-            .frame(minWidth: 380)
-            detail
-                .frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
+            .frame(minWidth: 320)
+            if !selectedItems.isEmpty {
+                detail
+                    .frame(minWidth: 260, idealWidth: 300, maxWidth: 400)
+            }
         }
     }
 
@@ -90,10 +93,10 @@ private struct SourcesView: View {
     private var collectionsList: some View {
         List(selection: Binding<UUID?>(get: { state.collection ?? Self.allID },
                                        set: { state.collection = ($0 == nil || $0 == Self.allID) ? nil : $0 })) {
-            Label("Все источники", systemImage: "books.vertical")
+            Label(L10n("All sources"), systemImage: "books.vertical")
                 .badge(store.items.count)
                 .tag(Self.allID)
-            Section("Коллекции") {
+            Section(L10n("Collections")) {
                 ForEach(store.collections) { collection in
                     Label(collection.name, systemImage: "folder")
                         .badge(store.items.filter { $0.collectionIDs.contains(collection.id) }.count)
@@ -104,10 +107,10 @@ private struct SourcesView: View {
                             return !uuids.isEmpty
                         }
                         .contextMenu {
-                            Button("Переименовать…") { rename(collection) }
-                            Button("Экспорт в BibTeX…") { export(store.items.filter { $0.collectionIDs.contains(collection.id) }, as: .bibtex) }
+                            Button(L10n("Rename…")) { rename(collection) }
+                            Button(L10n("Export BibTeX…")) { export(store.items.filter { $0.collectionIDs.contains(collection.id) }, as: .bibtex) }
                             Divider()
-                            Button("Удалить коллекцию") {
+                            Button(L10n("Delete collection")) {
                                 if state.collection == collection.id { state.collection = nil }
                                 store.deleteCollection(collection.id)
                             }
@@ -118,9 +121,9 @@ private struct SourcesView: View {
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
             Button {
-                if let name = Self.ask("Новая коллекция", value: "") { state.collection = store.createCollection(named: name) }
+                if let name = Self.ask(L10n("New collection"), value: "") { state.collection = store.createCollection(named: name) }
             } label: {
-                Label("Новая коллекция", systemImage: "plus")
+                Label(L10n("New collection"), systemImage: "plus")
             }
             .buttonStyle(.borderless)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,22 +138,22 @@ private struct SourcesView: View {
     private var toolbar: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Поиск: название, автор, журнал, тег, DOI", text: $state.search)
+            TextField(L10n("Title, author, journal, tag or DOI"), text: $state.search)
                 .textFieldStyle(.plain)
             Spacer()
             Button {
                 if let manager = state.manager ?? AgentBrowser.frontmostManager(includingIncognito: true) {
                     SourceCapture.save(from: manager)
                 }
-            } label: { Label("Сохранить страницу", systemImage: "plus.circle") }
-            .help("Сохранить открытую во вкладке страницу (⌘⇧S)")
+            } label: { Label(L10n("Save page"), systemImage: "plus.circle") }
+            .help(L10n("Save current page (⌘⇧S)"))
             Menu {
                 Button("BibTeX (.bib)…") { export(exportItems, as: .bibtex) }
                 Button("RIS (.ris)…") { export(exportItems, as: .ris) }
-                Button("Список литературы — \(state.style.title) (.txt)…") { export(exportItems, as: .bibliography) }
-            } label: { Label("Экспорт", systemImage: "square.and.arrow.up") }
+                Button(L10n("Bibliography — %1$@ (.txt)…", "\(state.style.title)")) { export(exportItems, as: .bibliography) }
+            } label: { Label(L10n("Export"), systemImage: "square.and.arrow.up") }
             .fixedSize()
-            .help("Выбранные источники, а если ничего не выбрано — все показанные")
+            .help(L10n("Exports selected sources, or all visible sources if none are selected."))
         }
         .padding(.horizontal, 12)
         .frame(height: 40)
@@ -160,23 +163,23 @@ private struct SourcesView: View {
 
     private var table: some View {
         Table(visible, selection: $state.selection) {
-            TableColumn("Название") { item in
+            TableColumn(L10n("Name")) { item in
                 Label { Text(item.title).lineLimit(1) } icon: {
                     Image(systemName: item.type.symbol).foregroundStyle(.secondary)
                 }
                 .draggable(item.id.uuidString)
             }
             .width(min: 180, ideal: 320)
-            TableColumn("Авторы", value: \.authorsShort)
+            TableColumn(L10n("Authors"), value: \.authorsShort)
                 .width(min: 80, ideal: 140)
-            TableColumn("Год", value: \.year)
+            TableColumn(L10n("Year"), value: \.year)
                 .width(44)
-            TableColumn("Издание", value: \.container)
+            TableColumn(L10n("Publication"), value: \.container)
                 .width(min: 80, ideal: 140)
             TableColumn("") { item in
                 HStack(spacing: 4) {
                     if item.pdfFile != nil { Image(systemName: "doc.richtext").help("PDF") }
-                    if item.snapshotFile != nil { Image(systemName: "camera.viewfinder").help("Снимок страницы") }
+                    if item.snapshotFile != nil { Image(systemName: "camera.viewfinder").help(L10n("Page snapshot")) }
                 }
                 .foregroundStyle(.secondary)
             }
@@ -194,16 +197,16 @@ private struct SourcesView: View {
     private func itemMenu(_ ids: Set<UUID>) -> some View {
         let items = store.items.filter { ids.contains($0.id) }
         if let item = items.first, items.count == 1 {
-            Button("Открыть страницу") { open(item) }
-            if item.pdfFile != nil { Button("Открыть PDF") { openAttachment(item.pdfFile) } }
-            if item.snapshotFile != nil { Button("Открыть снимок страницы") { openAttachment(item.snapshotFile) } }
+            Button(L10n("Open page")) { open(item) }
+            if item.pdfFile != nil { Button(L10n("Open PDF")) { openAttachment(item.pdfFile) } }
+            if item.snapshotFile != nil { Button(L10n("Open page snapshot")) { openAttachment(item.snapshotFile) } }
             Divider()
         }
-        Button("Скопировать ссылку — ГОСТ") { copy(items.map { Citation.format($0, style: .gost) }.joined(separator: "\n")) }
-        Button("Скопировать ссылку — APA") { copy(items.map { Citation.format($0, style: .apa) }.joined(separator: "\n")) }
-        Button("Скопировать BibTeX") { copy(Citation.bibtex(items)) }
+        Button(L10n("Copy GOST citation")) { copy(items.map { Citation.format($0, style: .gost) }.joined(separator: "\n")) }
+        Button(L10n("Copy APA citation")) { copy(items.map { Citation.format($0, style: .apa) }.joined(separator: "\n")) }
+        Button(L10n("Copy BibTeX")) { copy(Citation.bibtex(items)) }
         if !store.collections.isEmpty {
-            Menu("Коллекции") {
+            Menu(L10n("Collections")) {
                 ForEach(store.collections) { collection in
                     let inside = items.allSatisfy { $0.collectionIDs.contains(collection.id) }
                     Button(inside ? "✓ \(collection.name)" : collection.name) {
@@ -213,7 +216,7 @@ private struct SourcesView: View {
             }
         }
         Divider()
-        Button("Удалить", role: .destructive) {
+        Button(L10n("Delete"), role: .destructive) {
             store.delete(ids)
             state.selection.subtract(ids)
         }
@@ -229,10 +232,10 @@ private struct SourcesView: View {
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "text.book.closed").font(.system(size: 28)).foregroundStyle(.tertiary)
-                Text(selectedItems.isEmpty ? "Выберите источник" : "Выбрано: \(selectedItems.count)")
+                Text(selectedItems.isEmpty ? L10n("Select a source") : L10n("Selected: %1$@", "\(selectedItems.count)"))
                     .foregroundStyle(.secondary)
                 if selectedItems.count > 1 {
-                    Button("Скопировать список — \(state.style.title)") {
+                    Button(L10n("Copy bibliography — %1$@", "\(state.style.title)")) {
                         copy(selectedItems.enumerated().map { "\($0.offset + 1). " + Citation.format($0.element, style: state.style) }
                             .joined(separator: "\n"))
                     }
@@ -283,7 +286,7 @@ private struct SourcesView: View {
             panel.nameFieldStringValue = "sources.ris"
             text = Citation.ris(items)
         case .bibliography:
-            panel.nameFieldStringValue = "Список литературы.txt"
+            panel.nameFieldStringValue = L10n("Bibliography.txt")
             panel.allowedContentTypes = [.plainText]
             let sorted = items.sorted { ($0.creators.first?.lastName ?? $0.title) < ($1.creators.first?.lastName ?? $1.title) }
             text = sorted.enumerated().map { "\($0.offset + 1). " + Citation.format($0.element, style: state.style) }
@@ -294,7 +297,7 @@ private struct SourcesView: View {
     }
 
     private func rename(_ collection: SourceCollection) {
-        if let name = Self.ask("Название коллекции", value: collection.name) { store.renameCollection(collection.id, to: name) }
+        if let name = Self.ask(L10n("Collection name"), value: collection.name) { store.renameCollection(collection.id, to: name) }
     }
 
     static func ask(_ title: String, value: String) -> String? {
@@ -303,8 +306,8 @@ private struct SourcesView: View {
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         field.stringValue = value
         alert.accessoryView = field
-        alert.addButton(withTitle: "Готово")
-        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: L10n("Done"))
+        alert.addButton(withTitle: L10n("Cancel"))
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -324,40 +327,40 @@ private struct SourceDetail: View {
     var body: some View {
         Form {
             Section {
-                Picker("Тип", selection: $item.type) {
+                Picker(L10n("Type"), selection: $item.type) {
                     ForEach(SourceType.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
                 }
-                TextField("Название", text: $item.title, axis: .vertical).lineLimit(1...4)
-                TextField("Авторы", text: $item.authorsText, prompt: Text("Фамилия, Имя; Фамилия, Имя"), axis: .vertical)
+                TextField(L10n("Name"), text: $item.title, axis: .vertical).lineLimit(1...4)
+                TextField(L10n("Authors"), text: $item.authorsText, prompt: Text(L10n("Last name, first name; Last name, first name")), axis: .vertical)
                     .lineLimit(1...4)
                 TextField(containerLabel, text: $item.container)
-                TextField("Дата", text: $item.date, prompt: Text("2024 или 2024-05-14"))
+                TextField(L10n("Date"), text: $item.date, prompt: Text(L10n("2024 or 2024-05-14")))
                 if [.article, .conference, .preprint].contains(item.type) {
                     HStack {
-                        TextField("Том", text: $item.volume)
+                        TextField(L10n("Volume"), text: $item.volume)
                         TextField("№", text: $item.issue)
                     }
                 }
                 if item.type != .webpage && item.type != .video {
-                    TextField("Страницы", text: $item.pages)
-                    TextField(item.type == .thesis ? "Организация" : "Издательство", text: $item.publisher)
-                    TextField("Город", text: $item.place)
+                    TextField(L10n("Pages"), text: $item.pages)
+                    TextField(item.type == .thesis ? L10n("Organization") : L10n("Publisher"), text: $item.publisher)
+                    TextField(L10n("City"), text: $item.place)
                 }
                 TextField("DOI", text: $item.doi)
                 if [.book, .chapter].contains(item.type) { TextField("ISBN", text: $item.isbn) }
-                TextField("Адрес", text: $item.url)
+                TextField(L10n("URL"), text: $item.url)
             }
-            Section("Теги и заметка") {
-                TextField("Теги", text: $item.tagsText, prompt: Text("через запятую"))
-                TextField("Заметка", text: $item.note, axis: .vertical).lineLimit(3...10)
+            Section(L10n("Tags and notes")) {
+                TextField(L10n("Tags"), text: $item.tagsText, prompt: Text(L10n("Comma-separated")))
+                TextField(L10n("Note"), text: $item.note, axis: .vertical).lineLimit(3...10)
             }
             if !item.abstract.isEmpty {
-                Section("Аннотация") {
+                Section(L10n("Abstract")) {
                     Text(item.abstract).font(.system(size: 11)).foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }
             Section {
-                Picker("Стиль", selection: $style) {
+                Picker(L10n("Style"), selection: $style) {
                     ForEach(Citation.Style.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
@@ -365,7 +368,7 @@ private struct SourceDetail: View {
                     .font(.system(size: 11))
                     .textSelection(.enabled)
                 HStack {
-                    Button(copied ? "Скопировано" : "Скопировать ссылку") {
+                    Button(copied ? L10n("Copied") : L10n("Copy Link")) {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(Citation.format(item, style: style), forType: .string)
                         copied = true
@@ -377,18 +380,18 @@ private struct SourceDetail: View {
                     }
                 }
             } header: {
-                Text("Цитирование")
+                Text(L10n("Citation"))
             }
-            Section("Вложения") {
-                Button { open(item) } label: { Label("Открыть страницу", systemImage: "safari") }
+            Section(L10n("Attachments")) {
+                Button { open(item) } label: { Label(L10n("Open page"), systemImage: "safari") }
                     .disabled(URL(string: item.url) == nil)
                 if item.pdfFile != nil {
                     Button { openAttachment(item.pdfFile) } label: { Label("PDF", systemImage: "doc.richtext") }
                 }
                 if item.snapshotFile != nil {
-                    Button { openAttachment(item.snapshotFile) } label: { Label("Снимок страницы", systemImage: "camera.viewfinder") }
+                    Button { openAttachment(item.snapshotFile) } label: { Label(L10n("Page snapshot"), systemImage: "camera.viewfinder") }
                 }
-                LabeledContent("Добавлено", value: item.addedAt.formatted(date: .abbreviated, time: .shortened))
+                LabeledContent(L10n("Added"), value: item.addedAt.formatted(date: .abbreviated, time: .shortened))
             }
         }
         .formStyle(.grouped)
@@ -405,12 +408,12 @@ private struct SourceDetail: View {
 
     private var containerLabel: String {
         switch item.type {
-        case .article: "Журнал"
-        case .conference: "Конференция"
-        case .chapter: "Книга"
-        case .webpage, .video: "Сайт"
-        case .preprint: "Репозиторий"
-        default: "Серия"
+        case .article: L10n("Journal")
+        case .conference: L10n("Conference")
+        case .chapter: L10n("Book")
+        case .webpage, .video: L10n("Site")
+        case .preprint: L10n("Repository")
+        default: L10n("Series")
         }
     }
 }

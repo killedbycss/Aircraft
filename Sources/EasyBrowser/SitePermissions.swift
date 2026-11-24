@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 import SwiftUI
@@ -106,7 +107,7 @@ struct PermissionBanner: View {
 
     private var subject: String {
         let names = request.permissions.map { $0.title.lowercased() }
-        return names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + " и " + names.last!
+        return names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + L10n(" and ") + names.last!
     }
 
     var body: some View {
@@ -120,14 +121,14 @@ struct PermissionBanner: View {
             .padding(7)
             .background(Circle().fill(Color.accentColor))
             VStack(alignment: .leading, spacing: 1) {
-                Text(request.host.isEmpty ? "Страница" : request.host).fontWeight(.semibold)
-                Text("Просит доступ: \(subject)").foregroundStyle(.secondary)
+                Text(request.host.isEmpty ? L10n("Page") : request.host).fontWeight(.semibold)
+                Text(L10n("Requests access to %1$@", "\(subject)")).foregroundStyle(.secondary)
             }
             .lineLimit(1)
             Spacer(minLength: 8)
-            Button("Запретить") { tabManager.answerPermission(request.id, allow: false, remember: true) }
-            Button("Только сейчас") { tabManager.answerPermission(request.id, allow: true, remember: false) }
-            Button("Разрешить") { tabManager.answerPermission(request.id, allow: true, remember: true) }
+            Button(L10n("Deny")) { tabManager.answerPermission(request.id, allow: false, remember: true) }
+            Button(L10n("Allow once")) { tabManager.answerPermission(request.id, allow: true, remember: false) }
+            Button(L10n("Allow")) { tabManager.answerPermission(request.id, allow: true, remember: true) }
                 .keyboardShortcut(.defaultAction)
         }
         .font(.system(size: 11, weight: .medium))
@@ -150,11 +151,11 @@ struct SiteSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Разрешения и масштаб, которые вы задали для сайтов в этом профиле.")
+            Text(L10n("Permissions and zoom settings for this profile."))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             if store.sites.isEmpty {
-                Text("Пока ничего не задано.")
+                Text(L10n("No site settings yet."))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
@@ -165,7 +166,7 @@ struct SiteSettingsPane: View {
                         Divider()
                     }
                 }
-                Button("Сбросить всё", role: .destructive) { store.resetAll() }
+                Button(L10n("Reset all"), role: .destructive) { store.resetAll() }
             }
         }
     }
@@ -180,9 +181,9 @@ struct SiteSettingsPane: View {
             ForEach(SitePermission.allCases, id: \.self) { permission in
                 if let decision = settings.permissions[permission] {
                     Menu {
-                        Button("Разрешить") { store.setDecision(.allow, permission, for: host) }
-                        Button("Запретить") { store.setDecision(.deny, permission, for: host) }
-                        Button("Спрашивать") { store.setDecision(nil, permission, for: host) }
+                        Button(L10n("Allow")) { store.setDecision(.allow, permission, for: host) }
+                        Button(L10n("Deny")) { store.setDecision(.deny, permission, for: host) }
+                        Button(L10n("Ask")) { store.setDecision(nil, permission, for: host) }
                     } label: {
                         Label(permission.title, systemImage: decision == .allow ? permission.symbol : "nosign")
                             .foregroundStyle(decision == .allow ? Color.green : Color.red)
@@ -194,7 +195,7 @@ struct SiteSettingsPane: View {
             Button { store.reset(host) } label: { Image(systemName: "xmark.circle.fill") }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Сбросить настройки сайта")
+                .help(L10n("Reset site settings"))
         }
         .font(.system(size: 11))
         .padding(.vertical, 7)

@@ -1,3 +1,4 @@
+import AircraftLanguage
 import AppKit
 import SwiftUI
 
@@ -34,12 +35,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 920, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: min(820, (NSScreen.main?.visibleFrame.height ?? 850) - 30)),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.title = "Настройки"
+        window.title = L10n("Settings")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
@@ -48,7 +49,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.minSize = NSSize(width: 720, height: 480)
         window.delegate = self
         window.center()
-        window.setFrameAutosaveName("AircraftSettingsWindow")
+        window.setFrameAutosaveName("AircraftSettingsWindowTall")
         self.window = window
         return window
     }
@@ -70,7 +71,6 @@ private struct SettingsWindowRoot: View {
             .environment(manager)
             .ignoresSafeArea(.container, edges: .top)
             .frame(minWidth: 720, minHeight: 480)
-            .fontWeight(.medium)
             .preferredColorScheme(browserTheme == "dark" ? .dark : (browserTheme == "light" ? .light : nil))
     }
 }

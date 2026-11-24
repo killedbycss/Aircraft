@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 
@@ -9,12 +10,12 @@ final class LibraryWindow: NSObject, NSWindowDelegate {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .history: "История"
-            case .accounts: "Аккаунты"
-            case .downloads: "Загрузки"
-            case .bookmarks: "Закладки"
-            case .archive: "Архив"
-            case .closed: "Недавно закрытые"
+            case .history: L10n("History")
+            case .accounts: L10n("Accounts")
+            case .downloads: L10n("Downloads")
+            case .bookmarks: L10n("Bookmarks")
+            case .archive: L10n("Archive")
+            case .closed: L10n("Recently closed")
             }
         }
         var symbol: String {
@@ -41,7 +42,7 @@ final class LibraryWindow: NSObject, NSWindowDelegate {
         state.section = section
         state.manager = manager
         let window = self.window ?? makeWindow()
-        window.title = manager.isIncognito ? "Библиотека — инкогнито" : "Библиотека — \(manager.profile.name)"
+        window.title = manager.isIncognito ? L10n("Library — Incognito") : L10n("Library — %1$@", "\(manager.profile.name)")
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
@@ -79,10 +80,12 @@ private struct LibraryView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(LibraryWindow.Section.allCases, selection: Binding(
+            List(selection: Binding(
                 get: { state.section },
-                set: { if let value = $0 { state.section = value } })) { section in
-                Label(section.title, systemImage: section.symbol).tag(section)
+                set: { if let value = $0 { state.section = value } })) {
+                libraryGroup(L10n("Browsing"), [.history, .closed, .archive])
+                libraryGroup(L10n("Saved"), [.bookmarks, .downloads])
+                libraryGroup(L10n("Profile"), [.accounts])
             }
             .navigationSplitViewColumnWidth(170)
         } detail: {
@@ -97,12 +100,33 @@ private struct LibraryView: View {
                     case .closed: ClosedList(manager: manager)
                     }
                 }
-                .searchable(text: $search, placement: .toolbar, prompt: "Поиск")
+                .modifier(LibrarySearch(section: state.section, search: $search))
+                .navigationTitle(state.section.title)
+                .navigationSubtitle(manager.isIncognito ? L10n("Incognito") : manager.profile.name)
+                .onChange(of: state.section) { _, _ in search = "" }
                 .environment(manager)
             } else {
-                Text("Окно браузера закрыто").foregroundStyle(.secondary)
+                Text(L10n("Browser window closed")).foregroundStyle(.secondary)
             }
         }
+    }
+    private func libraryGroup(_ title: String, _ sections: [LibraryWindow.Section]) -> some View {
+        Section(title) {
+            ForEach(sections) { section in
+                Label(section.title, systemImage: section.symbol).tag(section)
+            }
+        }
+    }
+
+}
+
+private struct LibrarySearch: ViewModifier {
+    let section: LibraryWindow.Section
+    @Binding var search: String
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if section == .closed { content }
+        else { content.searchable(text: $search, placement: .toolbar, prompt: L10n("Search")) }
     }
 }
 
@@ -118,7 +142,7 @@ private struct HistoryList: View {
             let entries = history.recent(matching: search)
             VStack(spacing: 0) {
                 if entries.isEmpty {
-                    ContentUnavailableView(search.isEmpty ? "История пуста" : "Ничего не найдено", systemImage: "clock")
+                    ContentUnavailableView(search.isEmpty ? L10n("No history") : L10n("No results"), systemImage: "clock")
                 } else {
                     List {
                         ForEach(groupedByDay(entries), id: \.0) { day, items in
@@ -130,11 +154,11 @@ private struct HistoryList: View {
                                         open(entry.url)
                                     }
                                     .contextMenu {
-                                        Button("Открыть в новой вкладке") { open(entry.url) }
-                                        Button("Скопировать ссылку") { copy(entry.url) }
+                                        Button(L10n("Open in new tab")) { open(entry.url) }
+                                        Button(L10n("Copy Link")) { copy(entry.url) }
                                         Divider()
-                                        Button("Удалить из истории") { history.delete(entry) }
-                                        Button("Удалить все посещения \(entry.host)") { history.deleteHost(entry.host) }
+                                        Button(L10n("Remove from history")) { history.delete(entry) }
+                                        Button(L10n("Delete all visits to %1$@", "\(entry.host)")) { history.deleteHost(entry.host) }
                                     }
                                 }
                             }
@@ -143,22 +167,22 @@ private struct HistoryList: View {
                 }
                 Divider()
                 HStack {
-                    Menu("Очистить историю") {
-                        Button("За последний час") { history.delete(since: Date().addingTimeInterval(-3600)) }
-                        Button("За сегодня") { history.delete(since: Calendar.current.startOfDay(for: Date())) }
-                        Button("За неделю") { history.delete(since: Date().addingTimeInterval(-7 * 86400)) }
+                    Menu(L10n("Clear history")) {
+                        Button(L10n("Last hour")) { history.delete(since: Date().addingTimeInterval(-3600)) }
+                        Button(L10n("Today")) { history.delete(since: Calendar.current.startOfDay(for: Date())) }
+                        Button(L10n("Last week")) { history.delete(since: Date().addingTimeInterval(-7 * 86400)) }
                         Divider()
-                        Button("Всю историю", role: .destructive) { history.clearAll() }
+                        Button(L10n("All history"), role: .destructive) { history.clearAll() }
                     }
                     .fixedSize()
                     Spacer()
-                    Text("Показаны последние \(entries.count)").foregroundStyle(.secondary)
+                    Text(L10n("Showing the latest %1$@", "\(entries.count)")).foregroundStyle(.secondary)
                 }
                 .font(.system(size: 11))
                 .padding(10)
             }
         } else {
-            ContentUnavailableView("В инкогнито история не ведётся", systemImage: "eyeglasses")
+            ContentUnavailableView(L10n("Incognito history is off"), systemImage: "eyeglasses")
         }
     }
 
@@ -167,8 +191,8 @@ private struct HistoryList: View {
         var result: [(String, [HistoryEntry])] = []
         for entry in entries {
             let label: String
-            if calendar.isDateInToday(entry.lastVisit) { label = "Сегодня" }
-            else if calendar.isDateInYesterday(entry.lastVisit) { label = "Вчера" }
+            if calendar.isDateInToday(entry.lastVisit) { label = L10n("history.today") }
+            else if calendar.isDateInYesterday(entry.lastVisit) { label = L10n("Yesterday") }
             else { label = entry.lastVisit.formatted(date: .complete, time: .omitted) }
             if result.last?.0 == label { result[result.count - 1].1.append(entry) } else { result.append((label, [entry])) }
         }
@@ -194,9 +218,9 @@ private struct BookmarkList: View {
         VStack(spacing: 0) {
             if store.items.isEmpty {
                 ContentUnavailableView {
-                    Label("Закладок нет", systemImage: "bookmark")
+                    Label(L10n("No bookmarks"), systemImage: "bookmark")
                 } description: {
-                    Text("⌘D добавляет страницу в закладки. Закладки из других браузеров — в Настройки → Браузер → Импорт.")
+                    Text(L10n("Press ⌘D to bookmark a page, or use Settings → Downloads and import."))
                 }
             } else if !search.isEmpty {
                 List(store.search(search, limit: 200)) { match in
@@ -222,12 +246,12 @@ private struct BookmarkList: View {
             }
             Divider()
             HStack {
-                Button("Новая папка") {
+                Button(L10n("New folder")) {
                     let parent = selection.flatMap { id in store.folders.first { $0.item.id == id }?.item.id }
-                    if store.addFolder(title: "Новая папка", in: parent) == nil { NSSound.beep() }
+                    if store.addFolder(title: L10n("New folder"), in: parent) == nil { NSSound.beep() }
                 }
                 Spacer()
-                Text("Вложенность папок — до \(BookmarkStore.maxFolderDepth) уровней").foregroundStyle(.secondary)
+                Text(L10n("Up to %1$@ folder levels", "\(BookmarkStore.maxFolderDepth)")).foregroundStyle(.secondary)
             }
             .font(.system(size: 11))
             .padding(10)
@@ -241,12 +265,12 @@ private struct BookmarkList: View {
         }
         .contextMenu {
             if let url = item.url {
-                Button("Открыть в новой вкладке") { open(url) }
-                Button("Скопировать ссылку") { copy(url) }
+                Button(L10n("Open in new tab")) { open(url) }
+                Button(L10n("Copy Link")) { copy(url) }
             }
-            Button("Переименовать…") { rename(item) }
-            Menu("Переместить в") {
-                Button("Корень") { store.move(item.id, to: nil) }
+            Button(L10n("Rename…")) { rename(item) }
+            Menu(L10n("Move to")) {
+                Button(L10n("Top level")) { store.move(item.id, to: nil) }
                 ForEach(store.folders, id: \.item.id) { folder in
                     Button(String(repeating: "  ", count: folder.depth - 1) + folder.item.title) {
                         if !store.move(item.id, to: folder.item.id) { NSSound.beep() }
@@ -254,26 +278,26 @@ private struct BookmarkList: View {
                 }
             }
             Divider()
-            Button("Удалить", role: .destructive) { store.remove(item.id) }
+            Button(L10n("Delete"), role: .destructive) { store.remove(item.id) }
         }
     }
 
     @ViewBuilder
     private func folderMenu(_ item: BookmarkItem) -> some View {
-        Button("Открыть все во вкладках") {
+        Button(L10n("Open all in tabs")) {
             for child in item.children where !child.isFolder { if let url = child.url { open(url) } }
         }
-        Button("Новая папка внутри") {
-            if store.addFolder(title: "Новая папка", in: item.id) == nil { NSSound.beep() }
+        Button(L10n("New subfolder")) {
+            if store.addFolder(title: L10n("New folder"), in: item.id) == nil { NSSound.beep() }
         }
-        Button("Переименовать…") { rename(item) }
+        Button(L10n("Rename…")) { rename(item) }
         Divider()
-        Button("Удалить папку", role: .destructive) { store.remove(item.id) }
+        Button(L10n("Delete folder"), role: .destructive) { store.remove(item.id) }
     }
 
     private func rename(_ item: BookmarkItem) {
         let alert = NSAlert()
-        alert.messageText = item.isFolder ? "Название папки" : "Закладка"
+        alert.messageText = item.isFolder ? L10n("Folder name") : L10n("Bookmark")
         let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 300, height: item.isFolder ? 24 : 54))
         stack.orientation = .vertical
         let title = NSTextField(string: item.title)
@@ -281,8 +305,8 @@ private struct BookmarkList: View {
         stack.addArrangedSubview(title)
         if !item.isFolder { stack.addArrangedSubview(address) }
         alert.accessoryView = stack
-        alert.addButton(withTitle: "Сохранить")
-        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: L10n("Save"))
+        alert.addButton(withTitle: L10n("Cancel"))
         alert.window.initialFirstResponder = title
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         store.update(item.id, title: title.stringValue, url: URL(string: address.stringValue))
@@ -310,9 +334,9 @@ private struct ArchiveList: View {
             VStack(spacing: 0) {
                 if entries.isEmpty {
                     ContentUnavailableView {
-                        Label("Архив пуст", systemImage: "archivebox")
+                        Label(L10n("Archive is empty"), systemImage: "archivebox")
                     } description: {
-                        Text("Сюда уходят вкладки, которые давно не открывали. Срок — в Настройки → Вкладки.")
+                        Text(L10n("Inactive tabs move here. Set the delay in Settings → Tabs."))
                     }
                 } else {
                     List(entries) { entry in
@@ -322,22 +346,22 @@ private struct ArchiveList: View {
                             manager.hostWindow?.makeKeyAndOrderFront(nil)
                         }
                         .contextMenu {
-                            Button("Вернуть вкладку") { manager.restoreFromArchive(entry) }
-                            Button("Удалить из архива", role: .destructive) { archive.remove(entry.id) }
+                            Button(L10n("Restore tab")) { manager.restoreFromArchive(entry) }
+                            Button(L10n("Remove from archive"), role: .destructive) { archive.remove(entry.id) }
                         }
                     }
                 }
                 Divider()
                 HStack {
-                    Button("Очистить архив", role: .destructive) { archive.clear() }.disabled(archive.entries.isEmpty)
+                    Button(L10n("Clear archive"), role: .destructive) { archive.clear() }.disabled(archive.entries.isEmpty)
                     Spacer()
-                    Text("Хранится до \(TabArchive.limit) вкладок").foregroundStyle(.secondary)
+                    Text(L10n("Keeps up to %1$@ tabs", "\(TabArchive.limit)")).foregroundStyle(.secondary)
                 }
                 .font(.system(size: 11))
                 .padding(10)
             }
         } else {
-            ContentUnavailableView("В инкогнито архива нет", systemImage: "eyeglasses")
+            ContentUnavailableView(L10n("Archive is off in incognito"), systemImage: "eyeglasses")
         }
     }
 }
@@ -347,7 +371,7 @@ private struct ClosedList: View {
 
     var body: some View {
         if manager.closedTabs.isEmpty {
-            ContentUnavailableView("Закрытых вкладок нет", systemImage: "arrow.uturn.backward")
+            ContentUnavailableView(L10n("No recently closed tabs"), systemImage: "arrow.uturn.backward")
         } else {
             List(manager.closedTabs.reversed()) { entry in
                 LibraryRow(title: entry.tab.title, subtitle: entry.tab.url?.host ?? "",
@@ -379,7 +403,7 @@ private struct LibraryRow: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2, perform: action)
-        .help("Двойной клик — открыть")
+        .help(L10n("Double-click to open"))
     }
 }
 
@@ -404,15 +428,15 @@ struct BookmarkEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(existing == nil ? "Добавить в закладки" : "Закладка", systemImage: existing == nil ? "bookmark" : "bookmark.fill")
+            Label(existing == nil ? L10n("Add bookmark") : L10n("Bookmark"), systemImage: existing == nil ? "bookmark" : "bookmark.fill")
                 .font(.system(size: 12, weight: .semibold))
-            TextField("Название", text: $name)
+            TextField(L10n("Name"), text: $name)
                 .textFieldStyle(.roundedBorder)
                 .focused($focused)
                 .onSubmit(save)
             if existing == nil {
-                Picker("Папка", selection: $folderID) {
-                    Text("Закладки").tag(UUID?.none)
+                Picker(L10n("Folder"), selection: $folderID) {
+                    Text(L10n("Bookmarks")).tag(UUID?.none)
                     ForEach(store.folders, id: \.item.id) { folder in
                         Text(String(repeating: "   ", count: folder.depth - 1) + folder.item.title).tag(Optional(folder.item.id))
                     }
@@ -420,15 +444,15 @@ struct BookmarkEditor: View {
             }
             HStack {
                 if let existing {
-                    Button("Удалить", role: .destructive) {
+                    Button(L10n("Delete"), role: .destructive) {
                         store.remove(existing.id)
                         tabManager.bookmarkEditorVisible = false
                     }
                 }
                 Spacer()
-                Button("Отмена") { tabManager.bookmarkEditorVisible = false }
+                Button(L10n("Cancel")) { tabManager.bookmarkEditorVisible = false }
                     .keyboardShortcut(.cancelAction)
-                Button("Готово", action: save)
+                Button(L10n("Done"), action: save)
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -451,7 +475,7 @@ struct BookmarkEditor: View {
             store.update(existing.id, title: name, url: nil)
         } else {
             store.add(title: name, url: url, to: folderID)
-            tabManager.showToast("Добавлено в закладки", symbol: "bookmark.fill")
+            tabManager.showToast(L10n("Bookmark added"), symbol: "bookmark.fill")
         }
         tabManager.bookmarkEditorVisible = false
     }

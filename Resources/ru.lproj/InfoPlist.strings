@@ -1,0 +1,4 @@
+"NSCameraUsageDescription" = "Сайты могут запросить доступ к камере для видеозвонков.";
+"NSMicrophoneUsageDescription" = "Сайты могут запросить доступ к микрофону для звонков и записи звука.";
+"NSLocationUsageDescription" = "Сайты могут запросить ваше местоположение для карт.";
+"NSLocationWhenInUseUsageDescription" = "Сайты могут запросить ваше местоположение для карт.";

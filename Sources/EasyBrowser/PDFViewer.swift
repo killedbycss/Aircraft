@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import PDFKit
 import AppKit
@@ -44,43 +45,52 @@ struct PDFViewerView: View {
     private var toolbar: some View {
         HStack(spacing: 10) {
             Button { showsThumbnails.toggle() } label: { Image(systemName: "sidebar.left") }
-                .help("Миниатюры и оглавление")
+                .help(L10n("Thumbnails and contents"))
             Divider().frame(height: 14)
             Button { controller.view?.goToPreviousPage(nil) } label: { Image(systemName: "chevron.up") }
-                .help("Предыдущая страница")
+                .disabled(controller.pageNumber <= 1)
+                .help(L10n("Previous page"))
             Button { controller.view?.goToNextPage(nil) } label: { Image(systemName: "chevron.down") }
-                .help("Следующая страница")
+                .disabled(controller.pageNumber >= controller.pageCount)
+                .help(L10n("Next page"))
             HStack(spacing: 4) {
                 TextField("", value: Binding(
                     get: { controller.pageNumber },
                     set: { controller.go(toPage: $0) }), format: .number)
+                    .accessibilityLabel(L10n("Page"))
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 44)
                     .multilineTextAlignment(.center)
-                Text("из \(controller.pageCount)").foregroundStyle(.secondary)
+                Text(L10n("of %1$@", "\(controller.pageCount)")).foregroundStyle(.secondary)
             }
             Spacer()
             Button { controller.zoom(0.8) } label: { Image(systemName: "minus.magnifyingglass") }
-                .help("Уменьшить")
+                .help(L10n("Zoom Out"))
             Button { controller.zoom(1.25) } label: { Image(systemName: "plus.magnifyingglass") }
-                .help("Увеличить")
+                .help(L10n("Zoom In"))
             Menu {
-                Button("По ширине") { controller.fitWidth() }
-                Button("Страница целиком") { controller.fitPage() }
-                Button("Реальный размер") { controller.actualSize() }
+                Button(L10n("Fit width")) { controller.fitWidth() }
+                Button(L10n("Fit page")) { controller.fitPage() }
+                Button(L10n("Actual Size")) { controller.actualSize() }
                 Divider()
-                Button(controller.isContinuous ? "Постранично" : "Сплошной прокруткой") { controller.toggleContinuous() }
+                Button(controller.isContinuous ? L10n("Single page") : L10n("Continuous scroll")) { controller.toggleContinuous() }
             } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
+                .help(L10n("View"))
             Divider().frame(height: 14)
-            Button { saveCopy() } label: { Image(systemName: "square.and.arrow.down") }
-                .help("Сохранить в Загрузки")
-            Button { NSWorkspace.shared.open(file) } label: { Image(systemName: "arrow.up.forward.app") }
-                .help("Открыть в Просмотре")
-            Button { controller.print() } label: { Image(systemName: "printer") }
-                .help("Печать")
+            Menu {
+                Button(L10n("Save to Downloads")) { saveCopy() }
+                Button(L10n("Open in Preview")) { NSWorkspace.shared.open(file) }
+                Button(L10n("Print")) { controller.print() }
+            } label: {
+                Label(L10n("File"), systemImage: "ellipsis.circle").labelStyle(.iconOnly)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(L10n("File"))
         }
         .buttonStyle(.plain)
         .font(.system(size: 12, weight: .medium))
@@ -100,7 +110,7 @@ struct PDFViewerView: View {
         }
         do {
             try FileManager.default.copyItem(at: file, to: target)
-            tabManager.showToast("Сохранено в Загрузки", symbol: "arrow.down.circle.fill")
+            tabManager.showToast(L10n("Saved to Downloads"), symbol: "arrow.down.circle.fill")
             DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: target.path)
         } catch {
             NSSound.beep()
@@ -260,8 +270,8 @@ private struct PDFSidebar: View {
         VStack(spacing: 0) {
             if controller.outline?.numberOfChildren ?? 0 > 0 {
                 Picker("", selection: $showsOutline) {
-                    Text("Страницы").tag(false)
-                    Text("Оглавление").tag(true)
+                    Text(L10n("Pages")).tag(false)
+                    Text(L10n("Contents")).tag(true)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()

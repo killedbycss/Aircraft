@@ -14,6 +14,7 @@ let sdkVersion = "27.0"
 
 let package = Package(
     name: "Aircraft",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v15)
     ],
@@ -23,8 +24,10 @@ let package = Package(
         .executable(name: "aircraft-webapp", targets: ["AircraftWebApp"])
     ],
     targets: [
+        .target(name: "AircraftLanguage", resources: [.process("Resources")]),
         .executableTarget(
             name: "aircraft",
+            dependencies: ["AircraftLanguage"],
             path: "Sources/EasyBrowser",
             exclude: ["Assets.xcassets"],
             linkerSettings: [
@@ -44,6 +47,7 @@ let package = Package(
         // Сайт как отдельное приложение («Добавить в Dock»): Aircraft копирует этот бинарник в .app.
         .executableTarget(
             name: "AircraftWebApp",
+            dependencies: ["AircraftLanguage"],
             path: "Sources/AircraftWebApp"
         ),
         .testTarget(

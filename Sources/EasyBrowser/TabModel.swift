@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 
@@ -42,7 +43,7 @@ public struct TabModel: Identifiable, Equatable {
 
     public init(
         id: UUID = UUID(),
-        title: String = "Новая вкладка",
+        title: String = L10n("New Tab"),
         url: URL? = nil,
         isLoading: Bool = false,
         isHibernated: Bool = false,

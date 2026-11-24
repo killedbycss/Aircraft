@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 import Observation
@@ -187,7 +188,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
 
         var newTab = TabModel(
             id: UUID(),
-            title: "Новая вкладка",
+            title: L10n("New Tab"),
             url: url,
             isLoading: url != nil,
             isHibernated: url != nil && webView == nil,
@@ -544,8 +545,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         if capability == "devtools" {
             activeWebView?.isInspectable = true
             let alert = NSAlert()
-            alert.messageText = "Web Inspector включён"
-            alert.informativeText = "Откройте Safari → Develop и выберите текущую страницу Aircraft. Это нативный инспектор WebKit."
+            alert.messageText = L10n("Web Inspector enabled")
+            alert.informativeText = L10n("In Safari, open Develop and choose the Aircraft page.")
             alert.addButton(withTitle: "OK")
             alert.runModal()
             return
@@ -634,7 +635,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         }
 
         tabs[index].url = targetURL
-        tabs[index].title = targetURL.host ?? (targetURL.isFileURL ? targetURL.lastPathComponent : "Новая вкладка")
+        tabs[index].title = targetURL.host ?? (targetURL.isFileURL ? targetURL.lastPathComponent : L10n("New Tab"))
         tabs[index].content = Self.viewerContent(forLocal: targetURL) ?? .web
         typedNavigations.insert(activeTabID)
         if let webView = tabs[index].webView { load(targetURL, in: webView, tabID: activeTabID) }
@@ -665,7 +666,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         } else {
             tab.webView?.reloadFromOrigin()
         }
-        showToast("Обновлено без кэша", symbol: "arrow.clockwise")
+        showToast(L10n("Reloaded without cache"), symbol: "arrow.clockwise")
     }
 
     public func goBackActiveTab() {
@@ -1024,7 +1025,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             let anchor = lastOpened(from: openerID) ?? openerID
             if openedByPage && !isPopup {
                 let openerURL = tabs.first(where: { $0.id == openerID })?.url
-                let title = openerURL.map(HistoryStore.displayHost).flatMap { $0.isEmpty ? nil : $0 } ?? "Группа"
+                let title = openerURL.map(HistoryStore.displayHost).flatMap { $0.isEmpty ? nil : $0 } ?? L10n("Group")
                 tree.insertOpenedTab(tab.id, opener: openerID, anchor: anchor, grouping: Self.groupsOpenedLinks,
                                      groupTitle: title)
             } else {
@@ -1065,7 +1066,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         popup.uiDelegate = self
 
         let tabURL = (url?.absoluteString.isEmpty == false ? url : nil) ?? URL(string: "about:blank")
-        let tab = TabModel(title: "Новая вкладка", url: tabURL, isLoading: true, webView: popup)
+        let tab = TabModel(title: L10n("New Tab"), url: tabURL, isLoading: true, webView: popup)
         insertTab(tab, after: openerTabID, openedByPage: true, isPopup: isLoginPopup)
         setupObservations(for: tab.id, webView: popup)
         selectTab(id: tab.id)
@@ -1102,7 +1103,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         MainActor.assumeIsolated {
             let alert = Self.makePageAlert(message: message, frame: frame)
             alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Отмена")
+            alert.addButton(withTitle: L10n("Cancel"))
             Self.present(alert, over: webView) { response in completionHandler(response == .alertFirstButtonReturn) }
         }
     }
@@ -1120,7 +1121,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             field.stringValue = defaultText ?? ""
             alert.accessoryView = field
             alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Отмена")
+            alert.addButton(withTitle: L10n("Cancel"))
             alert.window.initialFirstResponder = field
             Self.present(alert, over: webView) { response in
                 completionHandler(response == .alertFirstButtonReturn ? field.stringValue : nil)
@@ -1131,7 +1132,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     private static func makePageAlert(message: String, frame: WKFrameInfo) -> NSAlert {
         let alert = NSAlert()
         let host = frame.securityOrigin.host
-        alert.messageText = host.isEmpty ? "Сообщение страницы" : "Сайт \(host) сообщает"
+        alert.messageText = host.isEmpty ? L10n("Page message") : L10n("%1$@ says", "\(host)")
         alert.informativeText = message
         return alert
     }
@@ -1251,7 +1252,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 self.tabs[index].isLoading = false
                 if self.tabs[index].id == self.activeTabID, code == NSURLErrorCannotConnectToHost,
                    let url = failingURL ?? self.tabs[index].url, LocalDevelopment.isLocal(url) {
-                    self.showToast("\(url.host ?? "localhost")\(url.port.map { ":\($0)" } ?? "") не отвечает — сервер запущен?",
+                    self.showToast(L10n("%1$@%2$@ is not responding. Is the server running?", "\(url.host ?? "localhost")", "\(url.port.map { ":\($0)" } ?? "")"),
                                    symbol: "bolt.horizontal.circle")
                 }
             }
@@ -1297,15 +1298,15 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 return
             }
             let alert = NSAlert()
-            alert.messageText = "Вход на \(host)"
-            alert.informativeText = (failures > 0 ? "Неверный логин или пароль. " : "")
-                + (realm.map { "Сайт просит войти: «\($0)»." } ?? "Сайт просит логин и пароль.")
+            alert.messageText = L10n("Sign in to %1$@", "\(host)")
+            alert.informativeText = (failures > 0 ? L10n("Incorrect username or password. ") : "")
+                + (realm.map { L10n("Sign in to “%1$@”.", "\($0)") } ?? L10n("Enter your username and password."))
             let user = NSTextField(frame: NSRect(x: 0, y: 30, width: 260, height: 24))
-            user.placeholderString = "Логин"
+            user.placeholderString = L10n("Username")
             user.stringValue = proposedUser ?? ""
             let password = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-            password.placeholderString = "Пароль"
-            let remember = NSButton(checkboxWithTitle: "Запомнить в связке ключей", target: nil, action: nil)
+            password.placeholderString = L10n("Password")
+            let remember = NSButton(checkboxWithTitle: L10n("Remember in Keychain"), target: nil, action: nil)
             remember.frame = NSRect(x: 0, y: -28, width: 260, height: 20)
             let box = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 82))
             let rows: [(NSView, CGFloat)] = [(user, 58), (password, 28), (remember, 0)]
@@ -1314,8 +1315,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
                 box.addSubview(view)
             }
             alert.accessoryView = box
-            alert.addButton(withTitle: "Войти")
-            alert.addButton(withTitle: "Отмена")
+            alert.addButton(withTitle: L10n("Sign in"))
+            alert.addButton(withTitle: L10n("Cancel"))
             alert.window.initialFirstResponder = proposedUser == nil ? user : password
             Self.present(alert, over: webView) { response in
                 guard response == .alertFirstButtonReturn else {
@@ -1474,7 +1475,7 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             if let destination {
                 downloadDestinations[ObjectIdentifier(download)] = destination
                 DownloadStore.shared.started(download, destination: destination, source: response.url ?? download.originalRequest?.url)
-                showToast("Загрузка: \(destination.lastPathComponent)", symbol: "arrow.down.circle")
+                showToast(L10n("Downloading %1$@", "\(destination.lastPathComponent)"), symbol: "arrow.down.circle")
             }
             completionHandler(destination)
         }

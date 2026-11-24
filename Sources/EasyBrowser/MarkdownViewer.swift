@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 
@@ -132,7 +133,7 @@ enum MarkdownViewer {
         let toc = tocHTML(rendered.headings)
         return """
         <!doctype html>
-        <html lang="ru"><head>
+        <html lang="\(InterfaceLanguage.code)"><head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data: blob: file:; media-src * data: file:; style-src 'unsafe-inline'; font-src * data:; script-src 'nonce-\(nonce)'; frame-src 'none'; object-src 'none'; base-uri 'self'">
@@ -142,36 +143,36 @@ enum MarkdownViewer {
         <body class="\(toc.isEmpty ? "" : "has-toc") mode-view">
         <header class="bar">
           <span class="name">\(MarkdownRenderer.escape(title))</span>
-          <span id="status" class="status"></span>
+          <span id="status" class="status" role="status"></span>
           <span class="spacer"></span>
           <span class="seg">
-            <button data-mode="view" class="on" title="Просмотр">Просмотр</button>
-            <button data-mode="edit" title="Правка с предпросмотром">Правка</button>
-            <button data-mode="source" title="Исходный текст">Исходник</button>
+            <button data-mode="view" class="on" title="\(L10n("Preview"))">\(L10n("Preview"))</button>
+            <button data-mode="edit" title="\(L10n("Edit with preview"))">\(L10n("Edit"))</button>
+            <button data-mode="source" title="\(L10n("Source text"))">\(L10n("Source"))</button>
           </span>
-          <button id="toggle-toc" title="Оглавление"\(toc.isEmpty ? " hidden" : "")>☰</button>
-          <button id="toggle-look" title="Оформление">Aa</button>
-          <button id="save" title="\(editable ? "Сохранить (⌘S)" : "Сохранить копию (⌘S)")" hidden>\(editable ? "Сохранить" : "Сохранить копию…")</button>
+          <button id="toggle-toc" title="\(L10n("Contents"))"\(toc.isEmpty ? " hidden" : "")>☰</button>
+          <button id="toggle-look" title="\(L10n("Appearance"))">Aa</button>
+          <button id="save" title="\(editable ? L10n("Save (⌘S)") : L10n("Save a copy (⌘S)"))" hidden>\(editable ? L10n("Save") : L10n("Save a copy…"))</button>
         </header>
         <div id="look" class="look" hidden>
-          <label>Тема <select id="look-theme"><option value="auto">Как в системе</option><option value="light">Светлая</option><option value="sepia">Сепия</option><option value="dark">Тёмная</option></select></label>
-          <label>Шрифт <select id="look-font"><option value="sans">Без засечек</option><option value="serif">С засечками</option><option value="mono">Моноширинный</option></select></label>
-          <label>Размер <button id="look-smaller">A−</button><span id="look-size">16</span><button id="look-bigger">A+</button></label>
-          <label>Ширина <select id="look-width"><option value="narrow">Узко</option><option value="normal">Обычно</option><option value="wide">Широко</option></select></label>
+          <label>\(L10n("Theme")) <select id="look-theme"><option value="auto">\(L10n("System default"))</option><option value="light">\(L10n("Light"))</option><option value="sepia">\(L10n("Sepia"))</option><option value="dark">\(L10n("Dark"))</option></select></label>
+          <label>\(L10n("Font")) <select id="look-font"><option value="sans">\(L10n("Sans serif"))</option><option value="serif">\(L10n("Serif"))</option><option value="mono">\(L10n("Monospace"))</option></select></label>
+          <label>\(L10n("Size")) <button id="look-smaller">A−</button><span id="look-size">16</span><button id="look-bigger">A+</button></label>
+          <label>\(L10n("Width")) <select id="look-width"><option value="narrow">\(L10n("Narrow"))</option><option value="normal">\(L10n("Normal"))</option><option value="wide">\(L10n("Wide"))</option></select></label>
         </div>
         <div id="toolbar" class="toolbar" hidden>
-          <button data-wrap="**" title="Жирный (⌘B)"><b>B</b></button>
-          <button data-wrap="_" title="Курсив (⌘I)"><i>I</i></button>
-          <button data-wrap="~~" title="Зачёркнутый"><s>S</s></button>
-          <button data-wrap="`" title="Код">&lt;/&gt;</button>
-          <button data-line="# " title="Заголовок">H</button>
-          <button data-line="- " title="Список">•</button>
-          <button data-line="1. " title="Нумерованный список">1.</button>
-          <button data-line="- [ ] " title="Задача">☐</button>
-          <button data-line="> " title="Цитата">❝</button>
-          <button data-link="1" title="Ссылка (⌘K)">🔗</button>
-          <button data-block="```\n\n```" title="Блок кода">{ }</button>
-          <button data-block="| Колонка | Колонка |\n| --- | --- |\n|  |  |" title="Таблица">▦</button>
+          <button data-wrap="**" title="\(L10n("Bold (⌘B)"))"><b>B</b></button>
+          <button data-wrap="_" title="\(L10n("Italic (⌘I)"))"><i>I</i></button>
+          <button data-wrap="~~" title="\(L10n("Strikethrough"))"><s>S</s></button>
+          <button data-wrap="`" title="\(L10n("Code"))">&lt;/&gt;</button>
+          <button data-line="# " title="\(L10n("Heading"))">H</button>
+          <button data-line="- " title="\(L10n("List"))">•</button>
+          <button data-line="1. " title="\(L10n("Numbered list"))">1.</button>
+          <button data-line="- [ ] " title="\(L10n("Task"))">☐</button>
+          <button data-line="> " title="\(L10n("Quote"))">❝</button>
+          <button data-link="1" title="\(L10n("Link (⌘K)"))">🔗</button>
+          <button data-block="```\n\n```" title="\(L10n("Code block"))">{ }</button>
+          <button data-block="| \(L10n("Column")) | \(L10n("Column")) |\n| --- | --- |\n|  |  |" title="\(L10n("Table"))">▦</button>
         </div>
         <nav id="toc"\(toc.isEmpty ? " hidden" : "")>\(toc)</nav>
         <div id="workspace">
@@ -287,7 +288,7 @@ enum MarkdownViewer {
           const setStatus = (text) => { status.textContent = text; };
           let previewTimer;
           const changed = () => {
-            if (!dirty) { dirty = true; setStatus('Изменено •'); saveButton.hidden = false; }
+            if (!dirty) { dirty = true; setStatus('\#(L10n("Unsaved •"))'); saveButton.hidden = false; }
             clearTimeout(previewTimer);
             previewTimer = setTimeout(() => post('markdown.preview', { text: editor.value }), 220);
           };
@@ -297,10 +298,10 @@ enum MarkdownViewer {
             highlight();
             if (tocHtml) { toc.innerHTML = tocHtml; toc.hidden = false; document.body.classList.add('has-toc'); }
           };
-          const save = () => { post('markdown.save', { text: editor.value }); setStatus('Сохранение…'); };
+          const save = () => { post('markdown.save', { text: editor.value }); setStatus('\#(L10n("Saving…"))'); };
           window.__mdSaved = (ok) => {
-            if (ok) { dirty = false; setStatus(editable ? 'Сохранено' : 'Копия сохранена'); setTimeout(() => { if (!dirty) setStatus(''); }, 1600); }
-            else setStatus('Не удалось сохранить');
+            if (ok) { dirty = false; setStatus(editable ? '\#(L10n("document.saved"))' : '\#(L10n("Copy saved"))'); setTimeout(() => { if (!dirty) setStatus(''); }, 1600); }
+            else setStatus('\#(L10n("Could not save"))');
           };
           saveButton.addEventListener('click', save);
 
@@ -321,16 +322,16 @@ enum MarkdownViewer {
             editor.focus(); changed();
           };
           toolbar.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
-            if (button.dataset.wrap) replaceSelection(button.dataset.wrap, button.dataset.wrap, 'текст');
+            if (button.dataset.wrap) replaceSelection(button.dataset.wrap, button.dataset.wrap, '\#(L10n("text"))');
             else if (button.dataset.line) prefixLines(button.dataset.line);
-            else if (button.dataset.link) replaceSelection('[', '](https://)', 'ссылка');
+            else if (button.dataset.link) replaceSelection('[', '](https://)', '\#(L10n("link"))');
             else if (button.dataset.block) replaceSelection('\n' + button.dataset.block.replace(/\\n/g, '\n') + '\n', '', '');
           }));
           editor.addEventListener('keydown', (event) => {
             if (event.key === 'Tab') { event.preventDefault(); replaceSelection('  ', '', ''); }
-            if (event.metaKey && event.key.toLowerCase() === 'b') { event.preventDefault(); replaceSelection('**', '**', 'текст'); }
-            if (event.metaKey && event.key.toLowerCase() === 'i') { event.preventDefault(); replaceSelection('_', '_', 'текст'); }
-            if (event.metaKey && event.key.toLowerCase() === 'k') { event.preventDefault(); replaceSelection('[', '](https://)', 'ссылка'); }
+            if (event.metaKey && event.key.toLowerCase() === 'b') { event.preventDefault(); replaceSelection('**', '**', '\#(L10n("text"))'); }
+            if (event.metaKey && event.key.toLowerCase() === 'i') { event.preventDefault(); replaceSelection('_', '_', '\#(L10n("text"))'); }
+            if (event.metaKey && event.key.toLowerCase() === 'k') { event.preventDefault(); replaceSelection('[', '](https://)', '\#(L10n("link"))'); }
           });
           addEventListener('keydown', (event) => {
             if (event.metaKey && event.key.toLowerCase() === 's') { event.preventDefault(); save(); }

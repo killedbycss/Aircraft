@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
@@ -11,30 +12,30 @@ struct TabBehaviorSettings: View {
 
     var body: some View {
         Section {
-            Toggle("Собирать открытые ссылки в группы", isOn: $groupOpenedLinks)
+            Toggle(L10n("Group links opened in new tabs"), isOn: $groupOpenedLinks)
         } header: {
-            Text("Группы и папки")
+            Text(L10n("Groups and folders"))
         } footer: {
-            Text("Ссылка, открытая в новой вкладке, попадает в группу вместе со страницей, с которой её открыли. Папки создаются через контекстное меню панели; вложенность — до \(SidebarTree.maxFolderDepth) уровней.")
+            Text(L10n("New links join their source tab’s group. Create folders in the tab bar menu, up to %1$@ levels deep.", "\(SidebarTree.maxFolderDepth)"))
                 .foregroundStyle(.secondary)
         }
         Section {
-            Picker("Архивировать неактивные вкладки", selection: $autoArchiveHours) {
-                Text("Никогда").tag(0.0)
-                Text("Через 12 часов").tag(12.0)
-                Text("Через сутки").tag(24.0)
-                Text("Через неделю").tag(168.0)
-                Text("Через 30 дней").tag(720.0)
+            Picker(L10n("Archive inactive tabs"), selection: $autoArchiveHours) {
+                Text(L10n("Never")).tag(0.0)
+                Text(L10n("After 12 hours")).tag(12.0)
+                Text(L10n("After one day")).tag(24.0)
+                Text(L10n("After one week")).tag(168.0)
+                Text(L10n("After 30 days")).tag(720.0)
             }
             .onChange(of: autoArchiveHours) { _, _ in TabArchiver.shared.run() }
         } header: {
-            Text("Автоархив")
+            Text(L10n("Auto-archive"))
         } footer: {
-            Text("Закреплённые вкладки, вкладки в папках, вкладки со звуком и видео не архивируются. Архив — в Библиотеке (⌘Y).")
+            Text(L10n("Pinned tabs, folders and tabs playing media stay out of the archive. Open the archive in Library (⌘Y)."))
                 .foregroundStyle(.secondary)
         }
-        Section("Видео") {
-            Toggle("Картинка в картинке при уходе с вкладки с видео", isOn: $autoPictureInPicture)
+        Section(L10n("Video")) {
+            Toggle(L10n("Picture in Picture when leaving a video tab"), isOn: $autoPictureInPicture)
         }
     }
 }
@@ -57,12 +58,12 @@ struct ProfilesSettingsPane: View {
                             .background(Circle().fill(profile.color))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(profile.name).fontWeight(.medium)
-                            Text(profile.isDefault ? "Основной · ⌃\(index + 1)" : "⌃\(index + 1)")
+                            Text(profile.isDefault ? L10n("Default · ⌃%1$@", "\(index + 1)") : "⌃\(index + 1)")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Изменить") { editing = profile }
+                        Button(L10n("profile.edit")) { editing = profile }
                         if !profile.isDefault {
                             Button(role: .destructive) { deleting = profile } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
@@ -70,9 +71,9 @@ struct ProfilesSettingsPane: View {
                     }
                 }
                 .onMove { store.move(fromOffsets: $0, toOffset: $1) }
-                Button("Новый профиль") { editing = store.create(name: "Профиль \(store.profiles.count + 1)") }
+                Button(L10n("New profile")) { editing = store.create(name: L10n("Profile %1$@", "\(store.profiles.count + 1)")) }
             } footer: {
-                Text("У каждого профиля свои cookie и входы на сайты, история, закладки, настройки сайтов и вкладки. Переключатель — внизу панели вкладок. Вкладки неактивного профиля выгружаются из памяти.")
+                Text(L10n("Profiles keep tabs, accounts, history, bookmarks and site settings separate. Switch below the tab list. Inactive profiles release tab memory."))
                     .foregroundStyle(.secondary)
             }
         }
@@ -81,15 +82,15 @@ struct ProfilesSettingsPane: View {
         .sheet(item: $editing) { profile in
             ProfileEditor(profile: profile) { store.update($0) }
         }
-        .alert("Удалить профиль «\(deleting?.name ?? "")»?", isPresented: Binding(
+        .alert(L10n("Delete profile “%1$@”?", "\(deleting?.name ?? "")"), isPresented: Binding(
             get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
-            Button("Удалить", role: .destructive) {
+            Button(L10n("Delete"), role: .destructive) {
                 if let id = deleting?.id { Task { await store.delete(id) } }
                 deleting = nil
             }
-            Button("Отмена", role: .cancel) { deleting = nil }
+            Button(L10n("Cancel"), role: .cancel) { deleting = nil }
         } message: {
-            Text("Удалятся вкладки, история, закладки, cookie и входы на сайты этого профиля. Это нельзя отменить.")
+            Text(L10n("This permanently deletes the profile’s tabs, history, bookmarks, cookies and sign-ins."))
         }
     }
 }
@@ -101,8 +102,8 @@ private struct ProfileEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Профиль").font(.headline)
-            TextField("Название", text: $profile.name).textFieldStyle(.roundedBorder)
+            Text(L10n("Profile")).font(.headline)
+            TextField(L10n("Name"), text: $profile.name).textFieldStyle(.roundedBorder)
             HStack(spacing: 8) {
                 ForEach(Profile.palette.indices, id: \.self) { index in
                     Circle().fill(Profile.palette[index])
@@ -121,9 +122,9 @@ private struct ProfileEditor: View {
             }
             HStack {
                 Spacer()
-                Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Сохранить") {
-                    if profile.name.trimmingCharacters(in: .whitespaces).isEmpty { profile.name = "Профиль" }
+                Button(L10n("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L10n("Save")) {
+                    if profile.name.trimmingCharacters(in: .whitespaces).isEmpty { profile.name = L10n("Profile") }
                     save(profile)
                     dismiss()
                 }
@@ -146,39 +147,39 @@ struct PrivacySettingsPane: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Подсказки поисковика в Spotlight", isOn: $searchSuggestions)
+                Toggle(L10n("Show search suggestions in Spotlight"), isOn: $searchSuggestions)
             } footer: {
-                Text("Введённый текст отправляется выбранному поисковику, чтобы показать подсказки. История, закладки и открытые вкладки ищутся только на этом Mac.")
+                Text(L10n("Your search engine receives the query. History, bookmarks and open tabs are searched on this Mac."))
                     .foregroundStyle(.secondary)
             }
             if let manager, !manager.isIncognito {
-                Section("История профиля «\(manager.profile.name)»") {
+                Section(L10n("History for %1$@", "\(manager.profile.name)")) {
                     HStack {
-                        Button("Открыть историю") { LibraryWindow.show(.history, for: manager) }
+                        Button(L10n("Open history")) { LibraryWindow.show(.history, for: manager) }
                         Spacer()
-                        Button("Очистить всю историю…", role: .destructive) { confirmClear = true }
+                        Button(L10n("Clear all history…"), role: .destructive) { confirmClear = true }
                     }
                 }
-                Section("Сайты") {
+                Section(L10n("Sites")) {
                     SiteSettingsPane(store: manager.siteSettings)
                 }
             }
             Section {
-                Toggle("Агенты видят окна инкогнито", isOn: $agentsSeeIncognito)
+                Toggle(L10n("Allow agents to see incognito windows"), isOn: $agentsSeeIncognito)
             } header: {
-                Text("Инкогнито")
+                Text(L10n("Incognito"))
             } footer: {
-                Text("Окно инкогнито (⌘⇧N) не сохраняет историю, cookie, вкладки и настройки сайтов. По умолчанию MCP-агенты его не видят.")
+                Text(L10n("Incognito windows (⌘⇧N) discard history, cookies, tabs and site settings. MCP agents cannot see them by default."))
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .alert("Очистить всю историю?", isPresented: $confirmClear) {
-            Button("Очистить", role: .destructive) { manager?.history?.clearAll() }
-            Button("Отмена", role: .cancel) {}
+        .alert(L10n("Clear all history?"), isPresented: $confirmClear) {
+            Button(L10n("action.clear"), role: .destructive) { manager?.history?.clearAll() }
+            Button(L10n("Cancel"), role: .cancel) {}
         } message: {
-            Text("История профиля «\(manager?.profile.name ?? "")» будет удалена.")
+            Text(L10n("History for %1$@ will be deleted.", "\(manager?.profile.name ?? "")"))
         }
     }
 }
@@ -196,7 +197,7 @@ struct ImportSettingsSection: View {
 
     var body: some View {
         Section {
-            Picker("Откуда", selection: $source) {
+            Picker(L10n("Import from"), selection: $source) {
                 ForEach(BrowserImport.Source.allCases.filter(\.isInstalled)) { item in
                     Text(item.title).tag(item)
                 }
@@ -205,29 +206,29 @@ struct ImportSettingsSection: View {
                 }
             }
             Toggle(source.pinnedDescription, isOn: $includePinned)
-            Toggle("Закладки — в отдельную папку закладок", isOn: $includeBookmarks)
-            Toggle("История", isOn: $includeHistory)
+            Toggle(L10n("Bookmarks in a separate folder"), isOn: $includeBookmarks)
+            Toggle(L10n("History"), isOn: $includeHistory)
             HStack {
-                Button("Импортировать") { runImport() }
+                Button(L10n("Import data")) { runImport() }
                     .disabled(manager == nil || manager?.isIncognito == true || (!includeBookmarks && !includeHistory && !includePinned))
-                Button("Из HTML-файла…") { importHTML() }
+                Button(L10n("From HTML file…")) { importHTML() }
                     .disabled(manager == nil)
-                Button("Другой Chromium-браузер…") { chooseChromiumProfile() }
-                    .help("Папка профиля любого браузера на Chromium (в ней есть файлы Bookmarks и History)")
+                Button(L10n("Other Chromium browser…")) { chooseChromiumProfile() }
+                    .help(L10n("Select a Chromium profile folder containing Bookmarks and History."))
                 Spacer()
             }
             if let status {
                 Text(status).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if needsDiskAccess {
-                Button("Открыть настройки полного доступа к диску") {
+                Button(L10n("Open Full Disk Access settings")) {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
                 }
             }
         } header: {
-            Text("Импорт")
+            Text(L10n("Import"))
         } footer: {
-            Text("Закрепы появятся в панели вкладок этого окна, закладки — в отдельной папке закладок, история — в профиле «\(manager?.profile.name ?? "")». Входы на сайты (cookie и пароли) браузеры шифруют — их перенести нельзя: войдите заново, пароли подставит Связка ключей. Для Safari macOS требует полный доступ к диску.")
+            Text(L10n("import.destinations"))
                 .foregroundStyle(.secondary)
         }
     }
@@ -243,7 +244,7 @@ struct ImportSettingsSection: View {
             do {
                 let pinned = try BrowserImport.readPinned(source)
                 let added = manager.importPinned(pinned)
-                parts.append("закрепов: \(added)" + (added < pinned.count ? " (\(pinned.count - added) уже были)" : ""))
+                parts.append(L10n("Pinned: %1$@", "\(added)") + (added < pinned.count ? L10n(" (%1$@ already present)", "\(pinned.count - added)") : ""))
             } catch let error as BrowserImport.ImportError {
                 errors.append(error.message)
                 if error.needsFullDiskAccess { needsDiskAccess = true }
@@ -251,21 +252,21 @@ struct ImportSettingsSection: View {
                 errors.append(error.localizedDescription)
             }
         }
-        if includeBookmarks { parts.append("закладок: \(result.bookmarks)") }
-        if includeHistory { parts.append("страниц истории: \(result.pages)") }
-        status = "Импортировано — " + parts.joined(separator: ", ") + (errors.isEmpty ? "" : ". " + errors.joined(separator: " "))
+        if includeBookmarks { parts.append(L10n("Bookmarks: %1$@", "\(result.bookmarks)")) }
+        if includeHistory { parts.append(L10n("History entries: %1$@", "\(result.pages)")) }
+        status = L10n("Imported: ") + parts.joined(separator: ", ") + (errors.isEmpty ? "" : ". " + errors.joined(separator: " "))
     }
 
     private func chooseChromiumProfile() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.message = "Выберите папку профиля Chromium-браузера (обычно «Default» в ~/Library/Application Support/…)"
+        panel.message = L10n("Select a Chromium profile folder (usually Default in ~/Library/Application Support).")
         panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         BrowserImport.customProfileURL = url
         source = .customChromium
-        status = BrowserImport.Source.customChromium.isInstalled ? nil : "В этой папке нет файлов Bookmarks и History."
+        status = BrowserImport.Source.customChromium.isInstalled ? nil : L10n("This folder has no Bookmarks or History file.")
     }
 
     private func importHTML() {
@@ -275,9 +276,9 @@ struct ImportSettingsSection: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let count = try BrowserImport.importHTML(url, into: manager.bookmarks)
-            status = "Импортировано закладок: \(count)"
+            status = L10n("Bookmarks imported: %1$@", "\(count)")
         } catch {
-            status = "Не удалось прочитать файл: \(error.localizedDescription)"
+            status = L10n("Could not read file: %1$@", "\(error.localizedDescription)")
         }
     }
 }

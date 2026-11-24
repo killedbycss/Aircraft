@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import AppKit
 
@@ -23,12 +24,12 @@ enum BrowserImport {
             case .edge: "Microsoft Edge"
             case .vivaldi: "Vivaldi"
             case .opera: "Opera"
-            case .yandex: "Яндекс Браузер"
+            case .yandex: L10n("Yandex Browser")
             case .comet: "Comet"
             case .helium: "Helium"
             case .thorium: "Thorium"
             case .chromium: "Chromium"
-            case .customChromium: BrowserImport.customProfileURL?.deletingLastPathComponent().lastPathComponent ?? "Chromium-браузер"
+            case .customChromium: BrowserImport.customProfileURL?.deletingLastPathComponent().lastPathComponent ?? L10n("Chromium browser")
             }
         }
 
@@ -74,9 +75,9 @@ enum BrowserImport {
         /// остальные — на панели закладок.
         var pinnedDescription: String {
             switch self {
-            case .arc: "Закреплённые вкладки и избранное (плитки)"
-            case .dia: "Закреплённые вкладки Dia с папками"
-            default: "Закрепы — панель закладок как закреплённые вкладки"
+            case .arc: L10n("Pinned tabs and favorites")
+            case .dia: L10n("Pinned Dia tabs and folders")
+            default: L10n("Bookmarks bar as pinned tabs")
             }
         }
     }
@@ -149,7 +150,7 @@ enum BrowserImport {
     static func importHTML(_ url: URL, into store: BookmarkStore) throws -> Int {
         let html = try String(contentsOf: url, encoding: .utf8)
         var folder = parseNetscape(html)
-        folder.title = "Импорт · \(url.deletingPathExtension().lastPathComponent)"
+        folder.title = L10n("Import · %1$@", "\(url.deletingPathExtension().lastPathComponent)")
         let count = countBookmarks(folder)
         if count > 0 { store.addImported(folder) }
         return count
@@ -178,25 +179,25 @@ enum BrowserImport {
             let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Safari/Bookmarks.plist")
             let data: Data
             do { data = try Data(contentsOf: url) } catch {
-                throw ImportError(message: "Нет доступа к закладкам Safari. Дайте Aircraft полный доступ к диску.", needsFullDiskAccess: true)
+                throw ImportError(message: L10n("Allow Full Disk Access to read Safari bookmarks."), needsFullDiskAccess: true)
             }
             guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
-                throw ImportError(message: "Не удалось прочитать закладки Safari.")
+                throw ImportError(message: L10n("Could not read Safari bookmarks."))
             }
             var root = parseSafari(plist) ?? BookmarkItem(title: "", url: nil)
-            root.title = "Импорт из Safari"
+            root.title = L10n("Safari import")
             return root
         }
-        guard let profile = source.chromiumProfile else { throw ImportError(message: "Профиль не найден.") }
+        guard let profile = source.chromiumProfile else { throw ImportError(message: L10n("Profile not found.")) }
         let file = profile.appendingPathComponent("Bookmarks")
         guard let data = try? Data(contentsOf: file),
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let roots = json["roots"] as? [String: Any] else {
-            throw ImportError(message: "В \(source.title) не найдено закладок. Если браузер установлен, дайте Aircraft полный доступ к диску.",
+            throw ImportError(message: L10n("No bookmarks found in %1$@. Check Full Disk Access.", "\(source.title)"),
                               needsFullDiskAccess: FileManager.default.fileExists(atPath: profile.path))
         }
-        var folder = BookmarkItem(title: "Импорт из \(source.title)", url: nil)
-        let names = ["bookmark_bar": "Панель закладок", "other": "Другие закладки", "synced": "Мобильные закладки"]
+        var folder = BookmarkItem(title: L10n("Import from %1$@", "\(source.title)"), url: nil)
+        let names = ["bookmark_bar": L10n("Bookmarks bar"), "other": L10n("Other bookmarks"), "synced": L10n("Mobile bookmarks")]
         for key in ["bookmark_bar", "other", "synced"] {
             guard let node = roots[key] as? [String: Any], var item = parseChromium(node) else { continue }
             guard !item.children.isEmpty else { continue }
@@ -226,9 +227,9 @@ enum BrowserImport {
         guard type == "WebBookmarkTypeList" else { return nil }
         var title = node["Title"] as? String ?? ""
         switch title {
-        case "BookmarksBar": title = "Избранное"
-        case "BookmarksMenu": title = "Меню закладок"
-        case "com.apple.ReadingList": title = "Список для чтения"
+        case "BookmarksBar": title = L10n("Favorites")
+        case "BookmarksMenu": title = L10n("Bookmarks menu")
+        case "com.apple.ReadingList": title = L10n("Reading list")
         default: break
         }
         let children = (node["Children"] as? [[String: Any]] ?? []).compactMap(parseSafari)
@@ -238,7 +239,7 @@ enum BrowserImport {
 
     /// Простой разбор формата Netscape: `<H3>` — папка, `<DL>` — её содержимое, `<A HREF>` — закладка.
     static func parseNetscape(_ html: String) -> BookmarkItem {
-        var stack: [BookmarkItem] = [BookmarkItem(title: "Импорт", url: nil)]
+        var stack: [BookmarkItem] = [BookmarkItem(title: L10n("Import"), url: nil)]
         var pendingFolder: String?
         var seenFirstList = false
         let pattern = try! NSRegularExpression(
@@ -256,7 +257,7 @@ enum BrowserImport {
                 if !seenFirstList {
                     seenFirstList = true
                 } else {
-                    stack.append(BookmarkItem(title: pendingFolder ?? "Папка", url: nil))
+                    stack.append(BookmarkItem(title: pendingFolder ?? L10n("Folder"), url: nil))
                 }
                 pendingFolder = nil
             case ("dl", true):
@@ -311,13 +312,13 @@ enum BrowserImport {
             try FileManager.default.copyItem(at: original, to: copy)
         } catch {
             if source == .safari {
-                throw ImportError(message: "Нет доступа к истории Safari. Дайте Aircraft полный доступ к диску.", needsFullDiskAccess: true)
+                throw ImportError(message: L10n("Allow Full Disk Access to read Safari history."), needsFullDiskAccess: true)
             }
-            throw ImportError(message: "В \(source.title) не найдено истории. Если браузер открыт или защищён, дайте Aircraft полный доступ к диску.",
+            throw ImportError(message: L10n("No history found in %1$@. Check Full Disk Access if the browser is open or protected.", "\(source.title)"),
                               needsFullDiskAccess: FileManager.default.fileExists(atPath: original.deletingLastPathComponent().path))
         }
         defer { try? FileManager.default.removeItem(at: copy) }
-        guard let db = SQLiteDatabase(readOnly: copy) else { throw ImportError(message: "Не удалось открыть историю \(source.title).") }
+        guard let db = SQLiteDatabase(readOnly: copy) else { throw ImportError(message: L10n("Could not open history from %1$@.", "\(source.title)")) }
         var pages: [ImportedPage] = []
         if source == .safari {
             // Время в секундах от 2001-01-01.

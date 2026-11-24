@@ -1,3 +1,4 @@
+import AircraftLanguage
 import CryptoKit
 import Foundation
 import WebKit
@@ -191,7 +192,7 @@ final class AdBlocker {
             if count > 0 && found.count == count { return (found, defaults.integer(forKey: Self.compiledRulesKey)) }
         }
 
-        store.buildStatus = "Обработка списков фильтров…"
+        store.buildStatus = L10n("Processing filter lists…")
         let plan = await Task.detached(priority: .userInitiated) { Self.makePlan(inputs) }.value
         guard generation == compileGeneration else { return ([], 0) }
         store.recordStats(plan.stats, custom: plan.custom)
@@ -200,14 +201,14 @@ final class AdBlocker {
         var ruleCount = 0
         for (index, chunk) in plan.chunks.enumerated() {
             store.buildStatus = plan.chunks.count > 1
-                ? "Сборка правил: часть \(index + 1) из \(plan.chunks.count)…"
-                : "Сборка правил…"
+                ? L10n("Compiling rules: %1$@ of %2$@…", "\(index + 1)", "\(plan.chunks.count)")
+                : L10n("Compiling rules…")
             let identifier = Self.filterListPrefix + "\(key)-\(index)"
             var rules = chunk
             var list = await compile(identifier: identifier, json: "[" + rules.joined(separator: ",") + "]")
             if list == nil {
                 // В части есть правило, которое WebKit не принимает: находим и выкидываем.
-                store.buildStatus = "Поиск неподдерживаемых правил…"
+                store.buildStatus = L10n("Checking for unsupported rules…")
                 let bad = await invalidRuleIndices(rules[...], offset: 0, budget: 24)
                 if !bad.isEmpty {
                     let badSet = Set(bad)

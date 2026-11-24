@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 import AppKit
@@ -83,7 +84,7 @@ extension TabManager {
         let clean = AdBlocker.cleanedURL(url) ?? url
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(clean.absoluteString, forType: .string)
-        showToast("Ссылка скопирована", symbol: "link")
+        showToast(L10n("Link copied"), symbol: "link")
     }
 
     // MARK: Масштаб
@@ -177,7 +178,7 @@ extension TabManager {
         tabs[index].isMuted.toggle()
         applyTabMediaState(id: id)
         if id == activeTabID {
-            showToast(tabs[index].isMuted ? "Звук выключен" : "Звук включён",
+            showToast(tabs[index].isMuted ? L10n("Muted") : L10n("Sound on"),
                       symbol: tabs[index].isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
         }
     }
@@ -463,7 +464,7 @@ extension TabManager {
         Task { @MainActor in
             let result = try? await webView.callAsyncJavaScript(script, arguments: ["enterOnly": enterOnly], in: nil, contentWorld: .page)
             if (result as? String) == "none", !enterOnly {
-                showToast("На странице нет видео", symbol: "pip")
+                showToast(L10n("No video on this page"), symbol: "pip")
             }
         }
     }

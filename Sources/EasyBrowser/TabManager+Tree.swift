@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import AppKit
 
@@ -42,7 +43,7 @@ extension TabManager {
             NSSound.beep()
             return
         }
-        let folder = TabFolder(title: "Новая папка", kind: .folder)
+        let folder = TabFolder(title: L10n("New folder"), kind: .folder)
         tree.insert(.folder(folder), into: container, at: parentID == nil ? nil : 0)
         if let parentID { tree.updateFolder(parentID) { $0.isExpanded = true } }
         renamingFolderID = folder.id
@@ -54,8 +55,8 @@ extension TabManager {
         let ordered = tree.orderedTabIDs.filter(ids.contains)
         guard !ordered.isEmpty else { return }
         let title = kind == .group
-            ? (tabs.first(where: { $0.id == ordered[0] })?.url.map(HistoryStore.displayHost) ?? "Группа")
-            : "Новая папка"
+            ? (tabs.first(where: { $0.id == ordered[0] })?.url.map(HistoryStore.displayHost) ?? L10n("Group"))
+            : L10n("New folder")
         guard let id = tree.createFolder(title: title, kind: kind, containing: ordered) else {
             NSSound.beep()
             return
@@ -114,10 +115,10 @@ extension TabManager {
         let ids = SidebarNode.folder(folder).tabIDs
         if ids.count > 5 {
             let alert = NSAlert()
-            alert.messageText = "Закрыть «\(folder.title)»?"
-            alert.informativeText = "В папке \(ids.count) вкладок. Их можно будет вернуть через ⌘⇧T."
-            alert.addButton(withTitle: "Закрыть")
-            alert.addButton(withTitle: "Отмена")
+            alert.messageText = L10n("Close “%1$@”?", "\(folder.title)")
+            alert.informativeText = L10n("Tabs in folder: %1$@. Reopen them with ⌘⇧T.", "\(ids.count)")
+            alert.addButton(withTitle: L10n("Close"))
+            alert.addButton(withTitle: L10n("Cancel"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
         for tabID in ids { closeTab(id: tabID) }

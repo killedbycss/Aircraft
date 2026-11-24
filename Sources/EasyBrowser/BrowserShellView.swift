@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import WebKit
 import UniformTypeIdentifiers
@@ -80,7 +81,7 @@ public struct BrowserShellView: View {
         .onChange(of: windowNumber) { _, number in
             guard let number, let window = NSApp.window(withWindowNumber: number) else { return }
             tabManager.hostWindow = window
-            if tabManager.isIncognito { window.title = "Инкогнито" }
+            if tabManager.isIncognito { window.title = L10n("Incognito") }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
             guard let window = notification.object as? NSWindow, window.windowNumber == windowNumber else { return }
@@ -299,7 +300,7 @@ public struct HomeView: View {
                     HStack(spacing: 10) {
                         Image(systemName: urlSystemActive ? "link" : "magnifyingglass")
                             .foregroundStyle(urlSystemActive ? Color.accentColor : .secondary)
-                        TextField(urlSystemActive ? selectedPrefixLabel : "Поиск или URL · Tab — url-система", text: $searchInput)
+                        TextField(urlSystemActive ? selectedPrefixLabel : L10n("Search or URL · Tab for URL shortcuts"), text: $searchInput)
                             .textFieldStyle(.plain)
                             .focused($searchFocused)
                             .onKeyPress(.tab) {
@@ -337,7 +338,7 @@ public struct HomeView: View {
             Button(action: {
                 NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
             }) {
-                Text("настрой →")
+                Text(L10n("Set up →"))
                     .foregroundColor(.gray)
                     .font(.system(size: 13))
             }
@@ -363,7 +364,7 @@ public struct HomeView: View {
     }
 
     private var selectedPrefixLabel: String {
-        guard !urlPrefixes.isEmpty else { return "URL-система не настроена" }
+        guard !urlPrefixes.isEmpty else { return L10n("No URL shortcuts") }
         return urlPrefixes[min(selectedURLSystem, urlPrefixes.count - 1)] + "/…"
     }
 }
@@ -409,7 +410,8 @@ public struct SettingsView: View {
         URLSystemStore.prefixes(json: customURLPrefixesJSON, legacyPrefix: customURLPrefix)
     }
 
-    @State private var selectedSection: SettingsPane = .browser
+    @AppStorage(InterfaceLanguage.preferenceKey) private var language = "system"
+    @State private var selectedSection: SettingsPane = .general
 
     public var body: some View {
         HStack(spacing: 0) {
@@ -455,13 +457,15 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: 2) {
             // Место под кнопки управления окном.
             Color.clear.frame(height: 44)
-            Text("Настройки")
+            Text(L10n("Settings"))
                 .font(.system(size: 20, weight: .bold))
                 .padding(.horizontal, 12)
                 .padding(.bottom, 10)
-            ForEach(SettingsPane.allCases) { pane in
-                SettingsSidebarRow(pane: pane, isSelected: selectedSection == pane) {
-                    selectedSection = pane
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    settingsGroup(L10n("Interface"), [.general, .tabs, .search, .shortcuts])
+                    settingsGroup(L10n("Data"), [.profiles, .transfer, .privacy, .adblock])
+                    settingsGroup(L10n("Tools"), [.resources, .mods, .agents, .browser])
                 }
             }
             Spacer()
@@ -476,17 +480,26 @@ public struct SettingsView: View {
         .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
     }
 
+    private func settingsGroup(_ title: String, _ panes: [SettingsPane]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+            ForEach(panes) { pane in
+                SettingsSidebarRow(pane: pane, isSelected: selectedSection == pane) {
+                    selectedSection = pane
+                }
+            }
+        }
+    }
+
     private var settingsHeader: some View {
         HStack(spacing: 10) {
-            Image(systemName: selectedSection.icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 26, height: 26)
-                .background(selectedSection.tint.gradient, in: RoundedRectangle(cornerRadius: 7))
             Text(selectedSection.title)
                 .font(.system(size: 17, weight: .semibold))
             Spacer()
-            Button("Готово") { onClose() }
+            Button(L10n("Done")) { onClose() }
                 .keyboardShortcut(.cancelAction)
                 .controlSize(.large)
         }
@@ -499,6 +512,7 @@ public struct SettingsView: View {
     private var paneContent: some View {
         switch selectedSection {
         case .browser: browserPane
+        case .transfer: transferPane
         case .general: generalPane
         case .tabs: tabsPane
         case .search: searchPane
@@ -526,6 +540,22 @@ public struct SettingsView: View {
     private var browserPane: some View {
         Form {
             Section {
+                Picker(L10n("Identify as"), selection: $siteIdentity) {
+                    ForEach(SiteIdentity.allCases) { identity in
+                        Text(identity.title).tag(identity.rawValue)
+                    }
+                }
+                Toggle(L10n("Localhost tools"), isOn: $localDevTools)
+            } header: {
+                Text(L10n("Sites"))
+            } footer: {
+                Text(L10n("Safari works with most sign-ins. Chrome can enable Chromium-specific pages. Localhost tools show ports, bypass the cache, keep tabs awake and accept local certificates."))
+                    .foregroundStyle(.secondary)
+            }
+
+            AppLinksSettingsSection()
+            WebAppsSettingsSection()
+            Section {
                 HStack(spacing: 16) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
@@ -533,10 +563,7 @@ public struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Aircraft")
                             .font(.system(size: 22, weight: .bold))
-                        Text("Версия \(AppInfo.displayVersion) (сборка \(AppInfo.build))")
-                            .foregroundStyle(.secondary)
-                        Text("Лёгкий браузер на WebKit с модификациями")
-                            .font(.system(size: 12))
+                        Text(L10n("Version %1$@ (build %2$@)", "\(AppInfo.displayVersion)", "\(AppInfo.build)"))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -544,60 +571,28 @@ public struct SettingsView: View {
                 .padding(.vertical, 6)
             }
 
-            Section {
-                LabeledContent("Браузер по умолчанию") {
-                    if isDefaultBrowser {
-                        Label("Aircraft", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                    } else {
-                        Button("Сделать браузером по умолчанию") { makeDefaultBrowser() }
-                    }
-                }
-            } footer: {
-                Text("macOS попросит подтвердить выбор.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Picker("Представляться сайтам как", selection: $siteIdentity) {
-                    ForEach(SiteIdentity.allCases) { identity in
-                        Text(identity.title).tag(identity.rawValue)
-                    }
-                }
-                Toggle("Инструменты для localhost", isOn: $localDevTools)
-            } header: {
-                Text("Сайты")
-            } footer: {
-                Text("Safari — рекомендуется: сайты и страницы входа (Google, Microsoft, университетские LMS) видят обычный браузер, а не встроенное окно. «Chrome» — Google, YouTube и сервисы, которые отдают Safari упрощённую версию, показывают то же, что в Chromium; часть сайтов может работать хуже. Инструменты для localhost: значок порта, обновление без кэша, вкладки разработки не усыпляются и не архивируются, сертификат локального сервера принимается без вопросов.")
-                    .foregroundStyle(.secondary)
-            }
-
-            ImportSettingsSection(manager: tabManager)
-            WebAppsSettingsSection()
-
-            Section("Сведения") {
-                LabeledContent("Движок", value: "WebKit \(AppInfo.webKitVersion)")
+            Section(L10n("About")) {
+                LabeledContent(L10n("Engine"), value: "WebKit \(AppInfo.webKitVersion)")
                 LabeledContent("macOS", value: ProcessInfo.processInfo.operatingSystemVersionString)
-                LabeledContent("SDK модификаций", value: "Aircraft Mod SDK 0.2")
-                LabeledContent("Идентификатор", value: Bundle.main.bundleIdentifier ?? "—")
+                LabeledContent(L10n("Mod SDK"), value: "Aircraft Mod SDK 0.2")
+                LabeledContent(L10n("Identifier"), value: Bundle.main.bundleIdentifier ?? "—")
             }
 
-            Section("Данные") {
+            Section(L10n("Data")) {
                 HStack {
-                    Text("Модификации и настройки хранятся локально на этом Mac.")
+                    Text(L10n("Mods and settings are stored on this Mac."))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Открыть папку") { openDataFolder() }
+                    Button(L10n("Open folder")) { openDataFolder() }
                 }
                 HStack {
                     Spacer()
-                    Link("Проект на GitHub", destination: URL(string: "https://github.com/killedbycss/Aircraft")!)
+                    Link(L10n("GitHub project"), destination: URL(string: "https://github.com/killedbycss/Aircraft")!)
                 }
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .onAppear { refreshDefaultBrowserState() }
     }
 
     private func refreshDefaultBrowserState() {
@@ -625,45 +620,71 @@ public struct SettingsView: View {
         NSWorkspace.shared.open(folder)
     }
 
+    private var transferPane: some View {
+        Form {
+            Section(L10n("Downloads")) {
+                LabeledContent(L10n("Download folder")) {
+                    HStack(spacing: 8) {
+                        Text(downloadFolderPath.isEmpty ? L10n("Downloads") : URL(fileURLWithPath: downloadFolderPath).lastPathComponent)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Button(L10n("Choose…")) { chooseDownloadFolder() }
+                    }
+                }
+            }
+            ImportSettingsSection(manager: tabManager)
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+
     // MARK: Основные
 
     private var generalPane: some View {
         Form {
-            Section("Оформление") {
-                Picker("Тема", selection: $browserTheme) {
-                    Text("Системная").tag("system")
-                    Text("Светлая").tag("light")
-                    Text("Тёмная").tag("dark")
+            Section {
+                Picker(L10n("Interface language"), selection: $language) {
+                    Text(L10n("System default")).tag("system")
+                    Text(verbatim: "Русский").tag("ru")
+                    Text(verbatim: "English").tag("en")
                 }
-                .pickerStyle(.segmented)
+                .onChange(of: language) { _, choice in InterfaceLanguage.save(choice) }
+            } footer: {
+                Text(L10n("Restart Aircraft to apply the language."))
             }
             Section {
+                LabeledContent(L10n("Default browser")) {
+                    if isDefaultBrowser {
+                        Label("Aircraft", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button(L10n("Set as default")) { makeDefaultBrowser() }
+                    }
+                }
+            }
+
+            Section(L10n("Appearance")) {
+                Picker(L10n("Theme"), selection: $browserTheme) {
+                    Text(L10n("theme.system")).tag("system")
+                    Text(L10n("Light")).tag("light")
+                    Text(L10n("Dark")).tag("dark")
+                }
+                .pickerStyle(.segmented)
                 LiquidGlassToggle()
-            } header: {
-                Text("Liquid Glass")
             }
             Section {
                 ThemePicker()
             } header: {
-                Text("Цвет окна")
+                Text(L10n("Window color"))
             } footer: {
-                Text("Как в Arc: цвет или градиент тонирует панель вкладок и рамку вокруг страницы. В инкогнито не применяется.")
+                Text(L10n("Tints the tab bar and page frame outside incognito windows."))
                     .foregroundStyle(.secondary)
             }
-            AppLinksSettingsSection()
-            Section("Загрузки") {
-                LabeledContent("Папка для загрузок") {
-                    HStack(spacing: 8) {
-                        Text(downloadFolderPath.isEmpty ? "Загрузки" : URL(fileURLWithPath: downloadFolderPath).lastPathComponent)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Button("Выбрать…") { chooseDownloadFolder() }
-                    }
-                }
-            }
+
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        .onAppear { refreshDefaultBrowserState() }
     }
 
     // MARK: Вкладки
@@ -671,22 +692,22 @@ public struct SettingsView: View {
     private var tabsPane: some View {
         Form {
             Section {
-                Toggle("Панель вкладок", isOn: $tabGroupsEnabled)
+                Toggle(L10n("Tab bar"), isOn: $tabGroupsEnabled)
             } footer: {
-                Text("Если выключено, показывается только текущая вкладка.")
+                Text(L10n("Turn off to show only the current tab."))
                     .foregroundStyle(.secondary)
             }
-            Section("Расположение") {
-                Picker("Где показывать вкладки", selection: $tabPosition) {
-                    Text("Слева").tag("left")
-                    Text("Справа").tag("right")
-                    Text("Сверху").tag("top")
+            Section(L10n("Position")) {
+                Picker(L10n("Tab bar position"), selection: $tabPosition) {
+                    Text(L10n("Left")).tag("left")
+                    Text(L10n("Right")).tag("right")
+                    Text(L10n("Top")).tag("top")
                 }
                 .pickerStyle(.segmented)
-                Toggle("Плитки в полосе вкладок — одной папкой", isOn: $topBarTilesAsFolder)
+                Toggle(L10n("Group favorite tiles"), isOn: $topBarTilesAsFolder)
                     .disabled(tabPosition != "top")
-                    .help("Сверху и снизу плитки собираются в одну кнопку с меню, а не занимают место по одной")
-                LabeledContent("Размер панели") {
+                    .help(L10n("Show favorites in one menu on the horizontal tab bar."))
+                LabeledContent(L10n("Panel size")) {
                     HStack(spacing: 10) {
                         Slider(value: $tabScale, in: 0.8...1.5, step: 0.05)
                             .frame(width: 180)
@@ -701,20 +722,20 @@ public struct SettingsView: View {
             Section {
                 PanelButtonsEditor()
             } header: {
-                Text("Кнопки панели")
+                Text(L10n("Panel buttons"))
             } footer: {
-                Text("Порядок одинаков для панели слева, справа и сверху: вкладки, «Новая вкладка», эти кнопки, профиль. Перетащите строку или нажмите стрелки, чтобы переставить.")
+                Text(L10n("Drag a row or use the arrows to reorder buttons."))
                     .foregroundStyle(.secondary)
             }
             .disabled(!tabGroupsEnabled)
-            Section("Скрытая панель") {
-                Picker("Скрывать панель", selection: $topBarHideMode) {
-                    Text("Всегда").tag("always")
-                    Text("Только в оконном режиме").tag("windowed")
-                    Text("Никогда").tag("never")
+            Section(L10n("Auto-hide")) {
+                Picker(L10n("Hide tab bar"), selection: $topBarHideMode) {
+                    Text(L10n("Always")).tag("always")
+                    Text(L10n("In windowed mode")).tag("windowed")
+                    Text(L10n("Never")).tag("never")
                 }
-                LabeledContent("Показать или скрыть", value: "⌃⌥S")
-                Text("Для панели слева, справа и сверху. Кнопка «Закрепить / скрыть» и ⌃⌥S переключают эту настройку: открепить — «Всегда», закрепить — «Никогда». Скрытая панель сама выезжает, когда курсор подходит к краю окна, и видна, пока открыт Spotlight.")
+                LabeledContent(L10n("Toggle visibility"), value: "⌃⌥S")
+                Text(L10n("Move the pointer to the window edge to reveal the bar. It stays visible while Spotlight is open."))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -730,12 +751,12 @@ public struct SettingsView: View {
     private var searchPane: some View {
         Form {
             Section {
-                Picker("Поисковая система", selection: $searchTemplatePreset) {
+                Picker(L10n("Search engine"), selection: $searchTemplatePreset) {
                     ForEach(SearchEngineOption.popular) { engine in
                         Text(engine.title).tag(engine.id)
                     }
                     Divider()
-                    Text("Свой шаблон").tag("custom")
+                    Text(L10n("Custom template")).tag("custom")
                 }
                 .onChange(of: searchTemplatePreset) { _, preset in
                     guard let engine = SearchEngineOption.popular.first(where: { $0.id == preset }) else { return }
@@ -744,27 +765,27 @@ public struct SettingsView: View {
                     searchURLValidationMessage = nil
                 }
                 HStack(spacing: 8) {
-                    TextField("Шаблон", text: $customSearchURL, prompt: Text("https://search.example/?q={query}"))
+                    TextField(L10n("Template"), text: $customSearchURL, prompt: Text("https://search.example/?q={query}"))
                         .onSubmit { selectCustomSearch() }
-                    Button("Сохранить") { selectCustomSearch() }
+                    Button(L10n("Save")) { selectCustomSearch() }
                 }
                 if let searchURLValidationMessage {
                     Text(searchURLValidationMessage).foregroundStyle(.red).font(.system(size: 12))
                 }
             } header: {
-                Text("Поиск")
+                Text(L10n("Search"))
             } footer: {
-                Text("В шаблоне используйте {query}, %s или %@ на месте запроса.")
+                Text(L10n("Use {query}, %s or %@ for the search term."))
                     .foregroundStyle(.secondary)
             }
 
             Section {
                 HStack(spacing: 8) {
-                    TextField("Домен", text: $editableURLPrefix, prompt: Text("например, github.io"))
+                    TextField(L10n("Domain"), text: $editableURLPrefix, prompt: Text(L10n("e.g. github.io")))
                         .onSubmit { saveURLPrefix() }
-                    Button(editingURLPrefixIndex == nil ? "Добавить" : "Сохранить") { saveURLPrefix() }
+                    Button(editingURLPrefixIndex == nil ? L10n("Add") : L10n("Save")) { saveURLPrefix() }
                     if editingURLPrefixIndex != nil {
-                        Button("Отмена") { cancelURLPrefixEditing() }
+                        Button(L10n("Cancel")) { cancelURLPrefixEditing() }
                     }
                 }
                 if let urlValidationMessage {
@@ -777,16 +798,16 @@ public struct SettingsView: View {
                         Spacer()
                         Button { beginEditingURLPrefix(at: index) } label: { Image(systemName: "pencil") }
                             .buttonStyle(.borderless)
-                            .help("Редактировать")
+                            .help(L10n("shortcut.edit"))
                         Button { removeURLPrefix(at: index) } label: { Image(systemName: "trash") }
                             .buttonStyle(.borderless)
-                            .help("Удалить")
+                            .help(L10n("Delete"))
                     }
                 }
             } header: {
-                Text("URL-системы")
+                Text(L10n("URL shortcuts"))
             } footer: {
-                Text("В Spotlight нажмите Tab, чтобы открыть адрес внутри выбранной системы.")
+                Text(L10n("Press Tab in Spotlight to use a URL shortcut."))
                     .foregroundStyle(.secondary)
             }
         }
@@ -798,17 +819,17 @@ public struct SettingsView: View {
 
     private var resourcesPane: some View {
         Form {
-            Section("Мониторинг") {
-                Toggle("Показывать строку потребления памяти", isOn: $resourceMonitoring)
-                Picker("Предупреждать", selection: $resourceLimitAlert) {
-                    Text("Никогда").tag("none")
-                    Text("При превышении лимита").tag("limit")
+            Section(L10n("Monitoring")) {
+                Toggle(L10n("Show memory usage"), isOn: $resourceMonitoring)
+                Picker(L10n("Notify"), selection: $resourceLimitAlert) {
+                    Text(L10n("Never")).tag("none")
+                    Text(L10n("When over the limit")).tag("limit")
                 }
-                LabeledContent("Лимит памяти") {
+                LabeledContent(L10n("Memory limit")) {
                     HStack(spacing: 10) {
                         Slider(value: $resourceLimitMB, in: 128...2048, step: 64)
                             .frame(width: 180)
-                        Text("\(Int(resourceLimitMB)) МБ")
+                        Text(L10n("%1$@ MB", "\(Int(resourceLimitMB))"))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                             .frame(width: 64, alignment: .trailing)
@@ -816,20 +837,20 @@ public struct SettingsView: View {
                 }
                 .disabled(resourceLimitAlert != "limit")
             }
-            Section("Сброс ресурсов") {
-                Picker("Что сбрасывать", selection: $resourceResetScope) {
-                    Text("Фоновые вкладки").tag("backgroundTabs")
-                    Text("Все вкладки из памяти").tag("allTabs")
-                    Text("Веб-кэш и данные сайтов").tag("webCache")
+            Section(L10n("Free up resources")) {
+                Picker(L10n("Clear"), selection: $resourceResetScope) {
+                    Text(L10n("Background tabs")).tag("backgroundTabs")
+                    Text(L10n("All tabs from memory")).tag("allTabs")
+                    Text(L10n("Web cache and site data")).tag("webCache")
                 }
-                Picker("Сочетание клавиш", selection: $resourceResetShortcut) {
+                Picker(L10n("Keyboard shortcut"), selection: $resourceResetShortcut) {
                     Text("⌃⌥R").tag("control-option-r")
                     Text("⌃⌥⇧R").tag("control-option-shift-r")
                     Text("⌘⌥⇧R").tag("command-option-shift-r")
                 }
                 HStack {
                     Spacer()
-                    Button("Сбросить сейчас") { tabManager?.resetResources(scope: resourceResetScope) }
+                    Button(L10n("Clear now")) { tabManager?.resetResources(scope: resourceResetScope) }
                 }
             }
         }
@@ -851,10 +872,7 @@ public struct SettingsView: View {
                     let installedFile = customScripts.first { ModCatalog.family(for: $0) == mod.id }
                     HStack(spacing: 12) {
                         Image(systemName: mod.icon)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white)
-                            .frame(width: 30, height: 30)
-                            .background(mod.tint.gradient, in: RoundedRectangle(cornerRadius: 8))
+                            .modifier(SettingsSymbolStyle())
                         VStack(alignment: .leading, spacing: 2) {
                             Text(mod.title)
                             Text(mod.subtitle)
@@ -863,25 +881,25 @@ public struct SettingsView: View {
                         }
                         Spacer()
                         if let installedFile {
-                            Button("Удалить", role: .destructive) { removeModification(named: installedFile) }
+                            Button(L10n("Delete"), role: .destructive) { removeModification(named: installedFile) }
                         } else {
-                            Button("Установить") { installBundledModification(named: mod.id) }
+                            Button(L10n("Install")) { installBundledModification(named: mod.id) }
                                 .buttonStyle(.borderedProminent)
                         }
                     }
                     .padding(.vertical, 2)
                 }
             } header: {
-                Text("Встроенные")
+                Text(L10n("Built-in mods"))
             } footer: {
-                Text("Здесь только то, что заметно нагружает систему. Цвет окна (раздел «Основные») и «История и аккаунты» в меню вкладок теперь встроены и работают без установки.")
+                Text(L10n("These optional tools use additional resources."))
                     .foregroundStyle(.secondary)
             }
 
             Section {
                 let ownScripts = customScripts.filter { ModCatalog.family(for: $0) == nil }
                 if ownScripts.isEmpty {
-                    Text("Своих модификаций пока нет.")
+                    Text(L10n("No custom mods."))
                         .foregroundStyle(.secondary)
                 }
                 ForEach(ownScripts, id: \.self) { script in
@@ -893,19 +911,19 @@ public struct SettingsView: View {
                         Spacer()
                         Button { removeModification(named: script) } label: { Image(systemName: "trash") }
                             .buttonStyle(.borderless)
-                            .help("Удалить в корзину")
+                            .help(L10n("Move to Trash"))
                     }
                 }
                 HStack {
-                    Button("Добавить файл…") { openScriptPanel() }
+                    Button(L10n("Add file…")) { openScriptPanel() }
                     Spacer()
-                    Button("Гайд по SDK") { openModGuide() }
-                    Button("Открыть папку") { openModsFolder() }
+                    Button(L10n("SDK guide")) { openModGuide() }
+                    Button(L10n("Open folder")) { openModsFolder() }
                 }
             } header: {
-                Text("Свои модификации")
+                Text(L10n("Custom mods"))
             } footer: {
-                Text("Файлы .js и .css подключаются ко всем страницам.")
+                Text(L10n("JavaScript and CSS files run on every page."))
                     .foregroundStyle(.secondary)
             }
         }
@@ -917,52 +935,52 @@ public struct SettingsView: View {
 
     private var shortcutsPane: some View {
         Form {
-            Section("Вкладки") {
-                LabeledContent("Новая вкладка", value: "⌘T")
-                LabeledContent("Закрыть вкладку", value: "⌘W")
-                LabeledContent("Вернуть закрытую вкладку", value: "⌘⇧T")
-                LabeledContent("Предыдущая / следующая вкладка", value: "⌥←  ·  ⌥→")
-                LabeledContent("Вкладка по номеру", value: "⌘1 … ⌘8")
-                LabeledContent("Последняя вкладка", value: "⌘9")
-                LabeledContent("Выключить звук вкладки", value: "⌘⇧M")
-                LabeledContent("Показать/скрыть панель вкладок", value: "⌃⌥S")
-                LabeledContent("Выделить несколько вкладок", value: "⌘-клик в панели")
+            Section(L10n("Tabs")) {
+                LabeledContent(L10n("New Tab"), value: "⌘T")
+                LabeledContent(L10n("Close tab"), value: "⌘W")
+                LabeledContent(L10n("Reopen closed tab"), value: "⌘⇧T")
+                LabeledContent(L10n("Previous / next tab"), value: "⌥←  ·  ⌥→")
+                LabeledContent(L10n("Tab by number"), value: "⌘1 … ⌘8")
+                LabeledContent(L10n("Last tab"), value: "⌘9")
+                LabeledContent(L10n("Mute tab"), value: "⌘⇧M")
+                LabeledContent(L10n("Toggle tab bar"), value: "⌃⌥S")
+                LabeledContent(L10n("Select multiple tabs"), value: L10n("⌘-click in tab bar"))
             }
-            Section("Страница") {
-                LabeledContent("Найти на странице", value: "⌘F  ·  ⌘G  ·  ⌘⇧G")
-                LabeledContent("Масштаб", value: "⌘=  ·  ⌘−  ·  ⌘0")
-                LabeledContent("Скопировать ссылку", value: "⌘⇧C")
+            Section(L10n("Page")) {
+                LabeledContent(L10n("Find on page"), value: "⌘F  ·  ⌘G  ·  ⌘⇧G")
+                LabeledContent(L10n("Zoom"), value: "⌘=  ·  ⌘−  ·  ⌘0")
+                LabeledContent(L10n("Copy Link"), value: "⌘⇧C")
                 Picker("⌘⇧R", selection: $commandShiftR) {
                     ForEach(CommandShiftRAction.allCases) { action in
                         Text(action.title).tag(action.rawValue)
                     }
                 }
-                LabeledContent("Обновить без кэша", value: "⌥⌘R")
-                LabeledContent("Сохранить в «Источники» (мод)", value: "⌘⇧S")
-                LabeledContent("Split View: левая / правая панель", value: "⌥⌘←  ·  ⌥⌘→")
-                LabeledContent("Скрыть элемент на странице", value: "⌥⌘B")
-                LabeledContent("Markdown: правка / сохранить", value: "⌘E  ·  ⌘S")
+                LabeledContent(L10n("Reload without cache"), value: "⌥⌘R")
+                LabeledContent(L10n("Save to Sources (mod)"), value: "⌘⇧S")
+                LabeledContent(L10n("Focus left / right pane"), value: "⌥⌘←  ·  ⌥⌘→")
+                LabeledContent(L10n("Hide page element"), value: "⌥⌘B")
+                LabeledContent(L10n("Edit / save Markdown"), value: "⌘E  ·  ⌘S")
                 LabeledContent("Web Inspector", value: "F12  ·  ⌥⌘I")
             }
-            Section("Навигация") {
-                LabeledContent("Spotlight с адресом вкладки", value: "⌘⇧ (нажать и отпустить)")
-                LabeledContent("Адрес или поиск", value: "⌘L")
-                LabeledContent("Назад / вперёд", value: "⌘[  ·  ⌘]  ·  свайп двумя пальцами")
-                LabeledContent("Список страниц назад / вперёд", value: "удерживать стрелку или правый клик")
-                LabeledContent("Обновить / остановить", value: "⌘R  ·  ⌘.")
+            Section(L10n("Navigation")) {
+                LabeledContent(L10n("Show current URL in Spotlight"), value: L10n("Press and release ⌘⇧"))
+                LabeledContent(L10n("Address or search"), value: "⌘L")
+                LabeledContent(L10n("Back / forward"), value: L10n("⌘[ · ⌘] · two-finger swipe"))
+                LabeledContent(L10n("Show navigation history"), value: L10n("Hold or right-click an arrow"))
+                LabeledContent(L10n("Reload / stop"), value: "⌘R  ·  ⌘.")
             }
-            Section("Закладки и история") {
-                LabeledContent("Добавить в закладки", value: "⌘D")
-                LabeledContent("Закладки", value: "⌘⇧B")
-                LabeledContent("История и аккаунты", value: "⌘Y")
-                LabeledContent("Загрузки", value: "⌥⌘L")
+            Section(L10n("Bookmarks and history")) {
+                LabeledContent(L10n("Add bookmark"), value: "⌘D")
+                LabeledContent(L10n("Bookmarks"), value: "⌘⇧B")
+                LabeledContent(L10n("History and accounts"), value: "⌘Y")
+                LabeledContent(L10n("Downloads"), value: "⌥⌘L")
             }
-            Section("Окно и профили") {
-                LabeledContent("Новое окно", value: "⌘N")
-                LabeledContent("Окно инкогнито", value: "⌘⇧N")
-                LabeledContent("Профиль по номеру", value: "⌃1 … ⌃9")
-                LabeledContent("Открыть файл", value: "⌘O")
-                LabeledContent("Настройки", value: "⌘,")
+            Section(L10n("Windows and profiles")) {
+                LabeledContent(L10n("New Window"), value: "⌘N")
+                LabeledContent(L10n("Incognito window"), value: "⌘⇧N")
+                LabeledContent(L10n("Profile by number"), value: "⌃1 … ⌃9")
+                LabeledContent(L10n("Open file"), value: "⌘O")
+                LabeledContent(L10n("Settings"), value: "⌘,")
             }
         }
         .formStyle(.grouped)
@@ -1065,7 +1083,7 @@ public struct SettingsView: View {
 
     private func saveURLPrefix() {
         guard let normalized = URLRouter.normalizedPrefix(editableURLPrefix) else {
-            urlValidationMessage = "Нужен домен или URL без пробелов"
+            urlValidationMessage = L10n("Enter a domain or URL without spaces.")
             return
         }
         var prefixes = urlPrefixes
@@ -1111,7 +1129,7 @@ public struct SettingsView: View {
     private func selectCustomSearch() {
         let template = customSearchURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard URLRouter.searchTarget(query: "test", template: template) != nil else {
-            searchURLValidationMessage = "Нужен полный URL, например https://site/search?q={query}"
+            searchURLValidationMessage = L10n("Enter a full URL, e.g. https://site/search?q={query}")
             return
         }
         customSearchURL = template
@@ -1165,7 +1183,7 @@ private struct PageLoadingBar: View {
     var body: some View {
         GeometryReader { geometry in
             Rectangle()
-                .fill(Color.accentColor.gradient)
+                .fill(Color.accentColor)
                 .frame(width: geometry.size.width * shownProgress, height: 2.5)
                 .opacity(visible ? 1 : 0)
         }
@@ -1237,27 +1255,29 @@ enum AppInfo {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case browser, general, tabs, profiles, privacy, search, adblock, resources, mods, agents, shortcuts
+    case browser, general, tabs, profiles, privacy, search, adblock, resources, mods, agents, shortcuts, transfer
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .browser: "Браузер"
-        case .general: "Основные"
-        case .tabs: "Вкладки"
-        case .search: "Поиск и URL"
-        case .adblock: "Блокировщик"
-        case .resources: "Ресурсы"
-        case .mods: "Модификации"
-        case .agents: "Агенты"
-        case .shortcuts: "Сочетания клавиш"
-        case .profiles: "Профили"
-        case .privacy: "Конфиденциальность"
+        case .transfer: L10n("Downloads and import")
+        case .browser: L10n("Sites and browser")
+        case .general: L10n("General")
+        case .tabs: L10n("Tabs")
+        case .search: L10n("Search and URLs")
+        case .adblock: L10n("Content blocking")
+        case .resources: L10n("Resources")
+        case .mods: L10n("Mods")
+        case .agents: L10n("Agents")
+        case .shortcuts: L10n("Keyboard shortcuts")
+        case .profiles: L10n("Profiles")
+        case .privacy: L10n("Privacy")
         }
     }
 
     var icon: String {
         switch self {
+        case .transfer: "arrow.down.doc"
         case .browser: "safari.fill"
         case .general: "gearshape.fill"
         case .tabs: "square.on.square"
@@ -1272,21 +1292,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         }
     }
 
-    var tint: Color {
-        switch self {
-        case .browser: .cyan
-        case .general: .gray
-        case .tabs: .blue
-        case .search: .orange
-        case .adblock: .red
-        case .resources: .green
-        case .mods: .purple
-        case .agents: .teal
-        case .shortcuts: .indigo
-        case .profiles: .pink
-        case .privacy: .brown
-        }
-    }
+
 }
 
 private struct SettingsSidebarRow: View {
@@ -1300,19 +1306,18 @@ private struct SettingsSidebarRow: View {
             HStack(spacing: 9) {
                 Image(systemName: pane.icon)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.secondary)
                     .frame(width: 22, height: 22)
-                    .background(pane.tint.gradient, in: RoundedRectangle(cornerRadius: 6))
                 Text(pane.title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+                    .font(BrowserDesign.TypeRole.title(scale: 1, emphasized: isSelected))
+                    .foregroundStyle(.primary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 6)
             .frame(height: 32)
             .background(
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(isSelected ? Color.accentColor : Color.primary.opacity(isHovering ? 0.06 : 0))
+                BrowserDesign.Shape.row
+                    .fill(BrowserDesign.Surface.tab(active: isSelected, hovered: isHovering))
             )
             .contentShape(Rectangle())
         }
@@ -1326,15 +1331,14 @@ struct BundledMod: Identifiable {
     let title: String
     let subtitle: String
     let icon: String
-    let tint: Color
 
     static let all: [BundledMod] = [
-        .init(id: "aircraft-split-view", title: "Разделение экрана",
-              subtitle: "Две вкладки рядом в одном окне · держит вторую страницу в памяти", icon: "rectangle.split.2x1", tint: .teal),
-        .init(id: "aircraft-sources", title: "Источники",
-              subtitle: "Библиотека литературы как в Zotero: авторы, DOI, PDF, коллекции, ГОСТ/APA, BibTeX · ⌘⇧S", icon: "books.vertical.fill", tint: .red),
+        .init(id: "aircraft-split-view", title: L10n("Split view"),
+              subtitle: L10n("Open two tabs side by side. Both pages stay in memory."), icon: "rectangle.split.2x1"),
+        .init(id: "aircraft-sources", title: L10n("Sources"),
+              subtitle: L10n("Save articles, PDFs and citations. Export GOST, APA or BibTeX. ⌘⇧S"), icon: "books.vertical.fill"),
         .init(id: "aircraft-devtools-webextensions", title: "Web Inspector + WebExtensions",
-              subtitle: "Консоль, журнал fetch и мост chrome.* в каждой странице · ⌘⌥I", icon: "hammer.fill", tint: .gray)
+              subtitle: L10n("Console, fetch log and chrome.* bridge on every page. ⌘⌥I"), icon: "hammer.fill")
     ]
 }
 
@@ -1391,7 +1395,7 @@ private struct SplitBrowserPane: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
                 Menu {
-                    Button("Открыть адрес в этой панели…") {
+                    Button(L10n("Open URL in this pane…")) {
                         tabManager.focusSplitPane(tabID)
                         NotificationCenter.default.post(name: .showCurrentURLSpotlight, object: tabManager.hostWindow)
                     }
@@ -1404,7 +1408,7 @@ private struct SplitBrowserPane: View {
                             if candidate.id == tabID {
                                 Label(candidate.title, systemImage: "checkmark")
                             } else {
-                                Text(candidate.title.isEmpty ? (candidate.url?.host ?? "Новая вкладка") : candidate.title)
+                                Text(candidate.title.isEmpty ? (candidate.url?.host ?? L10n("New Tab")) : candidate.title)
                             }
                         }
                         .disabled(candidate.id == tabManager.splitPrimaryTabID || candidate.id == tabManager.splitTabID)
@@ -1415,17 +1419,17 @@ private struct SplitBrowserPane: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("Выбрать страницу для этой панели")
+                .help(L10n("Choose a page"))
                 Button { tabManager.swapSplitPanes() } label: {
                     Image(systemName: "arrow.left.arrow.right")
                 }
                 .buttonStyle(.plain)
-                .help("Поменять панели местами")
+                .help(L10n("Swap panes"))
                 Button { tabManager.closeSplitPane(tabID) } label: {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(.plain)
-                .help("Убрать эту панель (вкладка останется в списке)")
+                .help(L10n("Close pane and keep tab"))
             }
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(isFocused ? .primary : .secondary)
@@ -1448,9 +1452,9 @@ private struct SplitBrowserPane: View {
     }
 
     private var title: String {
-        guard let tab else { return "Новая страница" }
+        guard let tab else { return L10n("New page") }
         if !tab.title.isEmpty, tab.url != nil { return tab.title }
-        return tab.url?.host ?? "Новая страница"
+        return tab.url?.host ?? L10n("New page")
     }
 }
 
@@ -1486,7 +1490,7 @@ private struct SplitResizeHandle: View {
                 }
                 .onEnded { _ in startingRatio = nil }
         )
-        .help("Перетащите, чтобы изменить размеры · двойной клик — поровну")
+        .help(L10n("Drag to resize. Double-click for equal widths."))
     }
 }
 
@@ -1877,10 +1881,10 @@ private struct MobileSidebarView: View {
                 NavigationArrows(fontSize: 12 * tabScale)
                 ReloadPageButton(fontSize: 12 * tabScale)
                 Spacer()
-                ChromeIconButton(symbol: "gearshape", help: "Настройки (⌘,)", fontSize: 12 * tabScale) {
+                ChromeIconButton(symbol: "gearshape", help: L10n("Settings (⌘,)"), fontSize: 12 * tabScale) {
                     NotificationCenter.default.post(name: .openSettings, object: NSApp.keyWindow)
                 }
-                ChromeIconButton(symbol: "xmark", help: "Скрыть вкладки", fontSize: 12 * tabScale) {
+                ChromeIconButton(symbol: "xmark", help: L10n("Hide tabs"), fontSize: 12 * tabScale) {
                     sidebarVisible = false
                 }
             }
@@ -1925,7 +1929,7 @@ private struct MobileBottomBar: View {
                             .lineLimit(1)
                     } else {
                         Image(systemName: "magnifyingglass")
-                        Text("Поиск или адрес").foregroundStyle(.secondary)
+                        Text(L10n("Search or address")).foregroundStyle(.secondary)
                     }
                 }
                 .font(.system(size: 13, weight: .medium))
@@ -1935,7 +1939,7 @@ private struct MobileBottomBar: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .help("Адрес или поиск (⌘L)")
+            .help(L10n("Address or search (⌘L)"))
             Button { tabsOpen.toggle() } label: {
                 Text("\(tabManager.tabs.count)")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -1945,7 +1949,7 @@ private struct MobileBottomBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Вкладки (⌃⌥S)")
+            .help(L10n("Tabs (⌃⌥S)"))
         }
         .padding(.horizontal, 10)
         .frame(height: 48)
@@ -2022,7 +2026,7 @@ public struct SingleTabHeader: View {
 
             if let tab = tabManager.activeTab {
                 VStack(spacing: 1) {
-                    Text(tab.title.isEmpty ? "Заголовок" : tab.title)
+                    Text(tab.title.isEmpty ? L10n("Title") : tab.title)
                         .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
                     if isHoveringTitle {
@@ -2042,7 +2046,7 @@ public struct SingleTabHeader: View {
                         NSPasteboard.general.setString(url, forType: .string)
                     }
                 }
-                .help("Нажать, чтобы скопировать URL")
+                .help(L10n("Click to copy URL"))
             }
 
             HStack {
@@ -2058,7 +2062,7 @@ public struct SingleTabHeader: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Настройки")
+                .help(L10n("Settings"))
                 Spacer()
             }
         }
@@ -2084,12 +2088,12 @@ public struct ResourceHUDView: View {
             Image(systemName: "cpu")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
-            Text("RAM приложения: \(memoryUsage)")
+            Text(L10n("App memory: %1$@", "\(memoryUsage)"))
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
             Spacer()
-            Text(isOverLimit ? "лимит \(Int(limitMB)) MB превышен" : "вкладок: \(tabCount)")
+            Text(isOverLimit ? L10n("Over %1$@ MB limit", "\(Int(limitMB))") : L10n("Tabs: %1$@", "\(tabCount)"))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(isOverLimit ? .red : .secondary)
                 .lineLimit(1)
@@ -2244,7 +2248,7 @@ private struct TabStripItem: View {
                 TabFavicon(tab: tab, copied: false, size: 14 * tabScale)
             }
             VStack(alignment: .leading, spacing: 0) {
-                Text(tab.title.isEmpty ? "Заголовок" : tab.title)
+                Text(tab.title.isEmpty ? L10n("Title") : tab.title)
                     .font(BrowserDesign.TypeRole.title(scale: tabScale, emphasized: isActive))
                     .lineLimit(1)
                 if showsURL {
@@ -2264,7 +2268,7 @@ private struct TabStripItem: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Закрыть вкладку")
+                .help(L10n("Close tab"))
             }
         }
         .padding(.horizontal, 10 * tabScale)
@@ -2336,13 +2340,13 @@ public struct SidebarView: View {
                 VStack(spacing: 4) {
                     FavoritesGrid()
                     TabTreeList(style: .sidebar, side: side)
-                    NewTabButton(title: "Новая вкладка", fontSize: 12 * tabScale)
+                    NewTabButton(title: L10n("New Tab"), fontSize: 12 * tabScale)
                 }
                 .padding(.top, 2)
                 .padding(.horizontal, 8)
             }
             .contextMenu {
-                Button("Новая папка") { tabManager.createFolder() }
+                Button(L10n("New folder")) { tabManager.createFolder() }
             }
 
             ProfileBar()
@@ -2357,7 +2361,7 @@ private struct ReloadPageButton: View {
 
     var body: some View {
         ChromeIconButton(symbol: tabManager.activeTab?.isLoading == true ? "xmark" : "arrow.clockwise",
-                         help: tabManager.activeTab?.isLoading == true ? "Остановить (⌘.)" : "Обновить страницу (⌘R)",
+                         help: tabManager.activeTab?.isLoading == true ? L10n("Stop (⌘.)") : L10n("Reload page (⌘R)"),
                          fontSize: fontSize) {
             tabManager.reloadActiveTab()
         }
@@ -2373,7 +2377,7 @@ private struct CurrentURLLabel: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(tabManager.activeTab?.url?.absoluteString ?? "Новая вкладка")
+            Text(tabManager.activeTab?.url?.absoluteString ?? L10n("New Tab"))
                 .font(.system(size: fontSize, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -2388,7 +2392,7 @@ private struct CurrentURLLabel: View {
             }
             .buttonStyle(.plain)
             .disabled(tabManager.activeTab?.url == nil)
-            .help("Скопировать URL")
+            .help(L10n("Copy URL"))
         }
         .foregroundColor(.secondary)
     }
@@ -2426,7 +2430,7 @@ private struct MobileNewTabButton: View {
         Button {
             NotificationCenter.default.post(name: .createHomeTabWithoutSpotlight, object: NSApp.keyWindow)
         } label: {
-            Label("Новая вкладка", systemImage: "plus")
+            Label(L10n("New Tab"), systemImage: "plus")
                 .font(.system(size: fontSize, weight: .medium))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10).frame(height: 38)
@@ -2444,7 +2448,7 @@ private struct MobileAddressField: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Поиск или URL", text: $value)
+            TextField(L10n("Search or URL"), text: $value)
                 .textFieldStyle(.plain)
                 .font(.system(size: fontSize))
                 .onSubmit { guard !value.isEmpty else { return }; tabManager.navigateActiveTab(to: value) }
@@ -2581,7 +2585,7 @@ enum URLSystemTargets {
             guard let target = URLRouter.prefixedTarget(query: query, prefix: prefix) else { return nil }
             let url = URL(string: target)
             return SpotlightSuggestion(kind: .direct(target), title: url.map(SpotlightSuggestionEngine.shortURL) ?? target,
-                                       subtitle: "URL-система · \(prefix)", symbol: "link", url: url)
+                                       subtitle: L10n("URL shortcut · %1$@", "\(prefix)"), symbol: "link", url: url)
         }
     }
 }
@@ -2595,7 +2599,7 @@ private struct URLSystemSuggestions: View {
     var body: some View {
         let items = URLSystemTargets.suggestions(query: query, prefixes: prefixes)
         if items.isEmpty {
-            Text("Добавьте URL-систему в Настройки → Поиск")
+            Text(L10n("Add a shortcut in Settings → Search and URLs"))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -2725,13 +2729,13 @@ public struct SearchModalView: View {
                 .padding(.horizontal, 9)
                 .frame(height: 26)
                 .background(Capsule().fill(Color.accentColor))
-                .help("URL-система · Tab — выключить, ↑↓ — выбрать адрес")
+                .help(L10n("URL shortcuts · Tab to exit · ↑↓ to select"))
             } else {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            TextField(urlSystemActive ? "Путь или запрос" : "Поиск или адрес", text: $query)
+            TextField(urlSystemActive ? L10n("Path or query") : L10n("Search or address"), text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 20, weight: .regular))
                 .focused($isFocused)
@@ -2771,7 +2775,7 @@ public struct SearchModalView: View {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
-                .help("Очистить")
+                .help(L10n("action.clear"))
             }
         }
         .padding(.horizontal, 18)
@@ -2781,11 +2785,11 @@ public struct SearchModalView: View {
     /// Нижняя строка: навигация по текущей странице и подсказка по клавишам.
     private var footer: some View {
         HStack(spacing: 4) {
-            spotlightNavButton("arrow.left", help: "Назад (⌘[)", enabled: tabManager.canGoBack) { tabManager.goBackActiveTab() }
-            spotlightNavButton("arrow.right", help: "Вперёд (⌘])", enabled: tabManager.canGoForward) { tabManager.goForwardActiveTab() }
-            spotlightNavButton("arrow.clockwise", help: "Обновить (⌘R)", enabled: tabManager.activeTab?.url != nil) { tabManager.reloadActiveTab() }
+            spotlightNavButton("arrow.left", help: L10n("Back (⌘[)"), enabled: tabManager.canGoBack) { tabManager.goBackActiveTab() }
+            spotlightNavButton("arrow.right", help: L10n("Forward (⌘])"), enabled: tabManager.canGoForward) { tabManager.goForwardActiveTab() }
+            spotlightNavButton("arrow.clockwise", help: L10n("Reload (⌘R)"), enabled: tabManager.activeTab?.url != nil) { tabManager.reloadActiveTab() }
             Spacer()
-            Text(urlSystemActive ? "↩ открыть · ↑↓ адрес · Tab — обычный поиск" : footerHint)
+            Text(urlSystemActive ? L10n("↩ open · ↑↓ select · Tab search") : footerHint)
                 .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -2837,8 +2841,8 @@ public struct SearchModalView: View {
 
     private var footerHint: String {
         tabManager.modCapabilities.contains("splitView")
-            ? "↩ открыть · ⌘↩ новая вкладка · ⇧↩ рядом · ↑↓ · Tab — URL-система"
-            : "↩ открыть · ⌘↩ в новой вкладке · ↑↓ выбор · Tab — URL-система"
+            ? L10n("↩ open · ⌘↩ new tab · ⇧↩ split · ↑↓ select · Tab shortcuts")
+            : L10n("↩ open · ⌘↩ new tab · ↑↓ select · Tab shortcuts")
     }
 
     /// Выбранная подсказка: вкладка — переключиться, остальное — открыть
@@ -2918,7 +2922,7 @@ public struct SearchModalView: View {
     }
 
     private var selectedPrefixLabel: String {
-        guard !urlPrefixes.isEmpty else { return "не настроена" }
+        guard !urlPrefixes.isEmpty else { return L10n("Not configured") }
         return urlPrefixes[min(selectedURLSystem, urlPrefixes.count - 1)]
             .replacingOccurrences(of: "https://", with: "") + "/…"
     }

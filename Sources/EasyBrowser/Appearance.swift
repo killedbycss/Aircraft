@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 
@@ -19,17 +20,17 @@ enum AircraftTheme {
 
     /// Готовые сочетания. Пустая строка — без оформления (системный фон).
     static let presets: [Preset] = [
-        .init(id: "none", name: "Системный", first: "", second: ""),
-        .init(id: "sky", name: "Небо", first: "#6FA8FF", second: "#B7D3FF"),
-        .init(id: "lavender", name: "Лаванда", first: "#9B8CFF", second: "#E3B5FF"),
-        .init(id: "rose", name: "Роза", first: "#FF7A9C", second: "#FFC2A8"),
-        .init(id: "peach", name: "Персик", first: "#FF9F6B", second: "#FFD68A"),
-        .init(id: "lime", name: "Лайм", first: "#8EDB6A", second: "#D9F08A"),
-        .init(id: "mint", name: "Мята", first: "#3CCFB4", second: "#9BE7FF"),
-        .init(id: "ocean", name: "Океан", first: "#2F6BFF", second: "#22C7D6"),
-        .init(id: "sunset", name: "Закат", first: "#FF5F6D", second: "#FFC371"),
-        .init(id: "graphite", name: "Графит", first: "#5B6270", second: "#8A93A6"),
-        .init(id: "night", name: "Ночь", first: "#1E2A78", second: "#6A3093")
+        .init(id: "none", name: L10n("System"), first: "", second: ""),
+        .init(id: "sky", name: L10n("Sky"), first: "#6FA8FF", second: "#B7D3FF"),
+        .init(id: "lavender", name: L10n("Lavender"), first: "#9B8CFF", second: "#E3B5FF"),
+        .init(id: "rose", name: L10n("Rose"), first: "#FF7A9C", second: "#FFC2A8"),
+        .init(id: "peach", name: L10n("Peach"), first: "#FF9F6B", second: "#FFD68A"),
+        .init(id: "lime", name: L10n("Lime"), first: "#8EDB6A", second: "#D9F08A"),
+        .init(id: "mint", name: L10n("Mint"), first: "#3CCFB4", second: "#9BE7FF"),
+        .init(id: "ocean", name: L10n("Ocean"), first: "#2F6BFF", second: "#22C7D6"),
+        .init(id: "sunset", name: L10n("Sunset"), first: "#FF5F6D", second: "#FFC371"),
+        .init(id: "graphite", name: L10n("Graphite"), first: "#5B6270", second: "#8A93A6"),
+        .init(id: "night", name: L10n("Night"), first: "#1E2A78", second: "#6A3093")
     ]
 
     static func color(hex: String) -> Color? {
@@ -102,21 +103,21 @@ struct ThemePicker: View {
                 }
             }
             HStack(spacing: 16) {
-                ColorPicker("Цвет", selection: colorBinding($first), supportsOpacity: false)
-                ColorPicker("Второй цвет", selection: colorBinding($second), supportsOpacity: false)
+                ColorPicker(L10n("Color"), selection: colorBinding($first), supportsOpacity: false)
+                ColorPicker(L10n("Second color"), selection: colorBinding($second), supportsOpacity: false)
                     .disabled(first.isEmpty)
                 if !second.isEmpty, second != first {
-                    Button("Один цвет") { second = first }
+                    Button(L10n("Single color")) { second = first }
                         .buttonStyle(.link)
                 }
             }
             HStack {
-                Text("Насыщенность")
+                Text(L10n("Intensity"))
                 Slider(value: $intensity, in: 0.1...1)
                     .frame(maxWidth: 220)
                     .disabled(first.isEmpty)
             }
-            Toggle("Страница карточкой со скруглёнными углами", isOn: $insetPage)
+            Toggle(L10n("Rounded page corners"), isOn: $insetPage)
         }
     }
 
@@ -294,10 +295,10 @@ struct LiquidGlassToggle: View {
     var body: some View {
         Toggle(isOn: $glass) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Liquid Glass — весь интерфейс из стекла")
+                Text(L10n("Liquid Glass"))
                 Text(AircraftTheme.systemHasLiquidGlass
-                     ? "Окно просвечивает рабочий стол, панели, вкладки, Spotlight и кнопки — стекло macOS. Страницы остаются непрозрачными."
-                     : "Нужна macOS 26 или новее; здесь вместо стекла будут полупрозрачные материалы.")
+                     ? L10n("The window shows the desktop through glass controls. Pages stay opaque.")
+                     : L10n("Requires macOS 26. Earlier versions use translucent panels."))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

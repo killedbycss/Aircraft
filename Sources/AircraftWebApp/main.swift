@@ -1,3 +1,4 @@
+import AircraftLanguage
 import AppKit
 import WebKit
 
@@ -82,45 +83,45 @@ final class WebAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegat
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Скрыть \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: L10n("Hide %1$@", "\(appName)"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Завершить \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L10n("Quit %1$@", "\(appName)"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
         let editItem = NSMenuItem()
-        let edit = NSMenu(title: "Правка")
-        edit.addItem(withTitle: "Отменить", action: Selector(("undo:")), keyEquivalent: "z")
-        edit.addItem(withTitle: "Повторить", action: Selector(("redo:")), keyEquivalent: "Z")
+        let edit = NSMenu(title: L10n("Edit"))
+        edit.addItem(withTitle: L10n("Undo"), action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: L10n("Redo"), action: Selector(("redo:")), keyEquivalent: "Z")
         edit.addItem(.separator())
-        edit.addItem(withTitle: "Вырезать", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "Копировать", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "Вставить", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Выбрать всё", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(withTitle: L10n("Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L10n("Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L10n("Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L10n("Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         main.addItem(editItem)
 
         let viewItem = NSMenuItem()
-        let view = NSMenu(title: "Вид")
-        view.addItem(withTitle: "Назад", action: #selector(goBack), keyEquivalent: "[")
-        view.addItem(withTitle: "Вперёд", action: #selector(goForward), keyEquivalent: "]")
-        view.addItem(withTitle: "Обновить", action: #selector(reload), keyEquivalent: "r")
-        view.addItem(withTitle: "Домой", action: #selector(goHome), keyEquivalent: "H")
+        let view = NSMenu(title: L10n("View"))
+        view.addItem(withTitle: L10n("Back"), action: #selector(goBack), keyEquivalent: "[")
+        view.addItem(withTitle: L10n("Forward"), action: #selector(goForward), keyEquivalent: "]")
+        view.addItem(withTitle: L10n("Reload"), action: #selector(reload), keyEquivalent: "r")
+        view.addItem(withTitle: L10n("Home"), action: #selector(goHome), keyEquivalent: "H")
         view.addItem(.separator())
-        view.addItem(withTitle: "Увеличить", action: #selector(zoomIn), keyEquivalent: "=")
-        view.addItem(withTitle: "Уменьшить", action: #selector(zoomOut), keyEquivalent: "-")
-        view.addItem(withTitle: "Реальный размер", action: #selector(zoomReset), keyEquivalent: "0")
+        view.addItem(withTitle: L10n("Zoom In"), action: #selector(zoomIn), keyEquivalent: "=")
+        view.addItem(withTitle: L10n("Zoom Out"), action: #selector(zoomOut), keyEquivalent: "-")
+        view.addItem(withTitle: L10n("Actual Size"), action: #selector(zoomReset), keyEquivalent: "0")
         view.addItem(.separator())
-        view.addItem(withTitle: "Открыть в Aircraft", action: #selector(openInAircraft), keyEquivalent: "o")
-        view.addItem(withTitle: "Скопировать ссылку", action: #selector(copyLink), keyEquivalent: "C")
+        view.addItem(withTitle: L10n("Open in Aircraft"), action: #selector(openInAircraft), keyEquivalent: "o")
+        view.addItem(withTitle: L10n("Copy Link"), action: #selector(copyLink), keyEquivalent: "C")
         viewItem.submenu = view
         main.addItem(viewItem)
 
         let windowItem = NSMenuItem()
-        let window = NSMenu(title: "Окно")
-        window.addItem(withTitle: "Новое окно", action: #selector(newWindow), keyEquivalent: "n")
-        window.addItem(withTitle: "Закрыть", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        window.addItem(withTitle: "Свернуть", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
+        let window = NSMenu(title: L10n("Window"))
+        window.addItem(withTitle: L10n("New Window"), action: #selector(newWindow), keyEquivalent: "n")
+        window.addItem(withTitle: L10n("Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        window.addItem(withTitle: L10n("Minimize"), action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
         windowItem.submenu = window
         main.addItem(windowItem)
         NSApp.windowsMenu = window
@@ -220,7 +221,7 @@ final class WebAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegat
             let alert = NSAlert()
             alert.messageText = message
             alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Отмена")
+            alert.addButton(withTitle: L10n("Cancel"))
             completionHandler(alert.runModal() == .alertFirstButtonReturn)
         }
     }

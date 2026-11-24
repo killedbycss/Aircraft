@@ -1,10 +1,11 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 
 /// Цвета групп вкладок.
 enum GroupPalette {
     static let colors: [Color] = [.blue, .purple, .pink, .red, .orange, .yellow, .green, .teal]
-    static let names = ["Синий", "Фиолетовый", "Розовый", "Красный", "Оранжевый", "Жёлтый", "Зелёный", "Бирюзовый"]
+    static let names = [L10n("Blue"), L10n("Purple"), L10n("Pink"), L10n("Red"), L10n("Orange"), L10n("Yellow"), L10n("Green"), L10n("Teal")]
     static func color(_ index: Int) -> Color { colors[((index % colors.count) + colors.count) % colors.count] }
 
     /// Цвет для текста и значков: в тёмной теме чуть светлее, в светлой — темнее (жёлтый
@@ -172,7 +173,7 @@ private struct FolderHeader: View {
                     .foregroundStyle(folder.folderColor.map { AnyShapeStyle(GroupPalette.readable($0, scheme: colorScheme)) } ?? AnyShapeStyle(.secondary))
             }
             if isRenaming {
-                TextField("Название", text: $draftTitle)
+                TextField(L10n("Name"), text: $draftTitle)
                     .textFieldStyle(.plain)
                     .font(BrowserDesign.TypeRole.title(scale: tabScale, large: style == .mobile, emphasized: true))
                     .focused($titleFocused)
@@ -234,12 +235,12 @@ private struct FolderHeader: View {
 
     @ViewBuilder
     private var menu: some View {
-        Button("Переименовать") { tabManager.renamingFolderID = folder.id }
+        Button(L10n("Rename")) { tabManager.renamingFolderID = folder.id }
         if folder.kind == .folder {
-            Button("Новая папка внутри") { tabManager.createFolder(in: folder.id) }
+            Button(L10n("New subfolder")) { tabManager.createFolder(in: folder.id) }
                 .disabled(!tabManager.tree.canCreateFolder(in: container))
-            Menu("Цвет папки") {
-                Button("Без цвета") { tabManager.setFolderColor(folder.id, colorIndex: nil) }
+            Menu(L10n("Folder color")) {
+                Button(L10n("No color")) { tabManager.setFolderColor(folder.id, colorIndex: nil) }
                 Divider()
                 ForEach(GroupPalette.colors.indices, id: \.self) { index in
                     Button {
@@ -250,21 +251,21 @@ private struct FolderHeader: View {
                 }
             }
         } else {
-            Menu("Цвет") {
+            Menu(L10n("Color")) {
                 ForEach(GroupPalette.colors.indices, id: \.self) { index in
                     Button { tabManager.setGroupColor(folder.id, colorIndex: index) } label: {
                         ColorMenuLabel(index: index, checked: folder.colorIndex == index)
                     }
                 }
             }
-            Button("Превратить в папку") { tabManager.convertGroupToFolder(folder.id) }
+            Button(L10n("Convert to folder")) { tabManager.convertGroupToFolder(folder.id) }
         }
-        Button(folder.isExpanded ? "Свернуть" : "Развернуть") { tabManager.toggleFolderExpanded(folder.id) }
+        Button(folder.isExpanded ? L10n("Minimize") : L10n("Expand")) { tabManager.toggleFolderExpanded(folder.id) }
         Divider()
-        Button(folder.kind == .group ? "Разгруппировать" : "Убрать папку, оставить вкладки") {
+        Button(folder.kind == .group ? L10n("Ungroup") : L10n("Remove folder and keep tabs")) {
             tabManager.dissolveFolder(folder.id)
         }
-        Button("Закрыть все вкладки") { tabManager.closeFolder(folder.id) }
+        Button(L10n("Close all tabs")) { tabManager.closeFolder(folder.id) }
     }
 }
 
@@ -289,7 +290,7 @@ struct TabRow: View {
         HStack(spacing: mobile ? 12 : BrowserDesign.Space.iconGap) {
             TabFavicon(tab: tab, copied: copied, size: (mobile ? 18 : 14) * tabScale)
             VStack(alignment: .leading, spacing: 1) {
-                Text(tab.title.isEmpty ? "Новая вкладка" : tab.title)
+                Text(tab.title.isEmpty ? L10n("New Tab") : tab.title)
                     .font(BrowserDesign.TypeRole.title(scale: tabScale, large: mobile, emphasized: isActive))
                     .lineLimit(1)
                     .foregroundStyle(.primary)
@@ -315,7 +316,7 @@ struct TabRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Закрыть вкладку")
+                .help(L10n("Close tab"))
             }
         }
         .padding(.vertical, (mobile ? 0 : 7) * tabScale)
@@ -348,9 +349,9 @@ struct TabRow: View {
     private var subtitle: String {
         let place: String
         if let host = tab.url?.host, !host.isEmpty { place = host }
-        else if tab.url?.isFileURL == true { place = "Файл" }
-        else { return "Новая вкладка" }
-        return tab.isHibernated && !mobile ? place + " · выгружена" : place
+        else if tab.url?.isFileURL == true { place = L10n("File") }
+        else { return L10n("New Tab") }
+        return tab.isHibernated && !mobile ? place + L10n(" · unloaded") : place
     }
 
     private var background: Color {
@@ -413,13 +414,13 @@ struct TabStatusIcons: View {
                     Circle().fill(Color.red).frame(width: fontSize * 0.8, height: fontSize * 0.8)
                 }
                 .buttonStyle(.plain)
-                .help("Сайт использует камеру или микрофон. Нажмите, чтобы остановить")
+                .help(L10n("Camera or microphone in use. Click to stop."))
             }
             if tabManager.splitTabID != nil, tab.id == tabManager.splitPrimaryTabID || tab.id == tabManager.splitTabID {
                 Image(systemName: "rectangle.split.2x1")
                     .font(.system(size: fontSize))
                     .foregroundStyle(.secondary)
-                    .help("Открыта в Split View")
+                    .help(L10n("Open in split view"))
             }
             if tab.isInPictureInPicture {
                 Image(systemName: "pip.fill")
@@ -433,7 +434,7 @@ struct TabStatusIcons: View {
                         .foregroundStyle(tab.isMuted ? Color.secondary : Color.accentColor)
                 }
                 .buttonStyle(.plain)
-                .help(tab.isMuted ? "Включить звук (⌘⇧M)" : "Выключить звук (⌘⇧M)")
+                .help(tab.isMuted ? L10n("Unmute (⌘⇧M)") : L10n("Mute (⌘⇧M)"))
             }
         }
     }
@@ -450,58 +451,58 @@ struct TabContextMenu: View {
 
     var body: some View {
         if selection.count > 1 {
-            Button("Убрать \(selection.count) вкладки в папку") { tabManager.moveToNewFolder(selection) }
-            Button("Сгруппировать \(selection.count) вкладки") { tabManager.moveToNewFolder(selection, kind: .group) }
-            Button("Архивировать \(selection.count) вкладки") {
+            Button(L10n("Move tabs to folder (%1$@)", "\(selection.count)")) { tabManager.moveToNewFolder(selection) }
+            Button(L10n("Group tabs (%1$@)", "\(selection.count)")) { tabManager.moveToNewFolder(selection, kind: .group) }
+            Button(L10n("Archive tabs (%1$@)", "\(selection.count)")) {
                 tabManager.archiveTabs(selection)
                 tabManager.selectedTabIDs = []
             }
             .disabled(tabManager.isIncognito)
             Divider()
         }
-        Button(tab.isPinned ? "Открепить" : "Закрепить") { tabManager.togglePinTab(id: tab.id) }
+        Button(tab.isPinned ? L10n("Unpin") : L10n("Pin")) { tabManager.togglePinTab(id: tab.id) }
         if tabManager.tree.zone(of: tab.id) != .favorites {
-            Button("Добавить в плитки") { tabManager.addToFavorites(tab.id) }
+            Button(L10n("Add to favorites")) { tabManager.addToFavorites(tab.id) }
                 .disabled(tab.url == nil)
         } else {
-            Button("Убрать из плиток") { tabManager.dropNode(tab.id, toEndOf: .pinned) }
+            Button(L10n("Remove from favorites")) { tabManager.dropNode(tab.id, toEndOf: .pinned) }
         }
-        Button("Убрать в новую папку") { tabManager.moveToNewFolder([tab.id]) }
+        Button(L10n("Move to new folder")) { tabManager.moveToNewFolder([tab.id]) }
         if let url = tab.url {
-            Button(tabManager.bookmarks.contains(url) ? "Уже в закладках" : "Добавить в закладки") {
+            Button(tabManager.bookmarks.contains(url) ? L10n("Already bookmarked") : L10n("Add bookmark")) {
                 tabManager.bookmarks.add(title: tab.title, url: url)
             }
             .disabled(tabManager.bookmarks.contains(url))
             if tabManager.modCapabilities.contains("sources") {
-                Button("Сохранить в источники") {
+                Button(L10n("Save to sources")) {
                     tabManager.selectTab(id: tab.id)
                     SourceCapture.save(from: tabManager)
                 }
             }
-            Button("Скопировать ссылку") {
+            Button(L10n("Copy Link")) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString((AdBlocker.cleanedURL(url) ?? url).absoluteString, forType: .string)
             }
         }
         if tab.isPlayingAudio || tab.isMuted {
-            Button(tab.isMuted ? "Включить звук" : "Выключить звук") { tabManager.toggleMute(id: tab.id) }
+            Button(tab.isMuted ? L10n("Unmute") : L10n("Mute")) { tabManager.toggleMute(id: tab.id) }
         }
-        Button("Выключить звук остальных вкладок") { tabManager.muteOtherTabs(except: tab.id) }
+        Button(L10n("Mute other tabs")) { tabManager.muteOtherTabs(except: tab.id) }
         if tab.webView != nil, tab.content == .web {
-            Button("Картинка в картинке") { tabManager.togglePictureInPicture(id: tab.id) }
+            Button(L10n("Picture in Picture")) { tabManager.togglePictureInPicture(id: tab.id) }
         }
         Divider()
-        Button("Выгрузить из памяти") { tabManager.hibernateTab(id: tab.id) }
+        Button(L10n("Unload from memory")) { tabManager.hibernateTab(id: tab.id) }
             .disabled(tab.isHibernated || tab.url == nil)
         if !tabManager.isIncognito {
-            Button("Архивировать") { tabManager.archiveTabs([tab.id]) }
+            Button(L10n("Archive tab")) { tabManager.archiveTabs([tab.id]) }
                 .disabled(tab.url == nil)
         }
         if tabManager.modCapabilities.contains("splitView") {
-            Button("Разделить экран") { tabManager.activateSplit(with: tab.id) }
+            Button(L10n("Split screen")) { tabManager.activateSplit(with: tab.id) }
         }
         Divider()
-        Button("Закрыть") { tabManager.closeTab(id: tab.id) }
+        Button(L10n("Close")) { tabManager.closeTab(id: tab.id) }
     }
 }
 
@@ -525,8 +526,8 @@ struct TopBarFolderChip: View {
                 Menu {
                     folderMenu(folder.children)
                     Divider()
-                    Button("Переименовать…") { renameWithAlert() }
-                    Button("Убрать папку, оставить вкладки") { tabManager.dissolveFolder(folder.id) }
+                    Button(L10n("Rename…")) { renameWithAlert() }
+                    Button(L10n("Remove folder and keep tabs")) { tabManager.dissolveFolder(folder.id) }
                 } label: { chipLabel }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -541,18 +542,18 @@ struct TopBarFolderChip: View {
         } isTargeted: { targeted = $0 }
         .contextMenu {
             if folder.kind == .group {
-                Menu("Цвет") {
+                Menu(L10n("Color")) {
                     ForEach(GroupPalette.colors.indices, id: \.self) { index in
                         Button { tabManager.setGroupColor(folder.id, colorIndex: index) } label: {
                             ColorMenuLabel(index: index, checked: folder.colorIndex == index)
                         }
                     }
                 }
-                Button("Переименовать…") { renameWithAlert() }
-                Button("Разгруппировать") { tabManager.dissolveFolder(folder.id) }
+                Button(L10n("Rename…")) { renameWithAlert() }
+                Button(L10n("Ungroup")) { tabManager.dissolveFolder(folder.id) }
             } else {
-                Menu("Цвет папки") {
-                    Button("Без цвета") { tabManager.setFolderColor(folder.id, colorIndex: nil) }
+                Menu(L10n("Folder color")) {
+                    Button(L10n("No color")) { tabManager.setFolderColor(folder.id, colorIndex: nil) }
                     Divider()
                     ForEach(GroupPalette.colors.indices, id: \.self) { index in
                         Button { tabManager.setFolderColor(folder.id, colorIndex: index) } label: {
@@ -561,7 +562,7 @@ struct TopBarFolderChip: View {
                     }
                 }
             }
-            Button("Закрыть все вкладки") { tabManager.closeFolder(folder.id) }
+            Button(L10n("Close all tabs")) { tabManager.closeFolder(folder.id) }
         }
     }
 
@@ -601,7 +602,7 @@ struct TopBarFolderChip: View {
             switch node {
             case .tab(let id):
                 if let tab = tabManager.tabs.first(where: { $0.id == id }) {
-                    Button(tab.title.isEmpty ? "Новая вкладка" : tab.title) { tabManager.selectTab(id: id) }
+                    Button(tab.title.isEmpty ? L10n("New Tab") : tab.title) { tabManager.selectTab(id: id) }
                 }
             case .folder(let sub):
                 Menu(sub.title) { AnyView(folderMenu(sub.children)) }
@@ -611,12 +612,12 @@ struct TopBarFolderChip: View {
 
     private func renameWithAlert() {
         let alert = NSAlert()
-        alert.messageText = folder.kind == .group ? "Название группы" : "Название папки"
+        alert.messageText = folder.kind == .group ? L10n("Group name") : L10n("Folder name")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         field.stringValue = folder.title
         alert.accessoryView = field
-        alert.addButton(withTitle: "Готово")
-        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: L10n("Done"))
+        alert.addButton(withTitle: L10n("Cancel"))
         alert.window.initialFirstResponder = field
         if alert.runModal() == .alertFirstButtonReturn { tabManager.renameFolder(folder.id, to: field.stringValue) }
     }
@@ -694,7 +695,7 @@ struct TopBarTilesChip: View {
                 }
             }
             Divider()
-            Button("Показывать плитки по одной") {
+            Button(L10n("Show individual tiles")) {
                 UserDefaults.standard.set(false, forKey: TopBarItem.tilesAsFolderKey)
             }
         } label: {
@@ -725,7 +726,7 @@ struct TopBarTilesChip: View {
         .menuIndicator(.hidden)
         .fixedSize(horizontal: true, vertical: false)
         .padding(.vertical, 7 * tabScale)
-        .help(activeTile.map { "Плитки · сейчас: \(menuTitle($0))" } ?? "Плитки (\(tiles.count))")
+        .help(activeTile.map { L10n("Favorites · Current: %1$@", "\(menuTitle($0))") } ?? L10n("Favorites (%1$@)", "\(tiles.count)"))
         .dropDestination(for: String.self) { items, _ in
             guard let id = items.compactMap(TabDragPayload.decode).first else { return false }
             return tabManager.dropNode(id, toEndOf: .favorites)
@@ -744,7 +745,7 @@ struct TopBarTilesChip: View {
 
     private func menuTitle(_ tile: TabModel) -> String {
         if !tile.title.isEmpty { return tile.title }
-        return (tile.pinnedURL ?? tile.url)?.host ?? "Плитка"
+        return (tile.pinnedURL ?? tile.url)?.host ?? L10n("Favorite")
     }
 }
 

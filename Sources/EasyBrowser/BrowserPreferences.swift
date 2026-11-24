@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 
 struct SearchEngineOption: Identifiable, Equatable {
@@ -8,7 +9,7 @@ struct SearchEngineOption: Identifiable, Equatable {
     static let popular: [SearchEngineOption] = [
         .init(id: "duckduckgo", title: "DuckDuckGo", queryURL: "https://duckduckgo.com/?q={query}"),
         .init(id: "google", title: "Google", queryURL: "https://www.google.com/search?q={query}"),
-        .init(id: "yandex", title: "Яндекс", queryURL: "https://yandex.ru/search/?text={query}"),
+        .init(id: "yandex", title: L10n("Yandex"), queryURL: "https://yandex.ru/search/?text={query}"),
         .init(id: "bing", title: "Bing", queryURL: "https://www.bing.com/search?q={query}"),
         .init(id: "brave", title: "Brave", queryURL: "https://search.brave.com/search?q={query}")
     ]

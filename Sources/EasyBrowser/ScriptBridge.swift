@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 
@@ -53,6 +54,7 @@ public final class ScriptBridge: NSObject, WKScriptMessageHandler {
           });
           window.aircraft = Object.freeze({
             version: "0.2",
+            language: "\(InterfaceLanguage.code)",
             post,
             storage,
             closeTab: () => post("closeTab"),

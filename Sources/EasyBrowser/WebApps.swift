@@ -1,3 +1,4 @@
+import AircraftLanguage
 import AppKit
 import SwiftUI
 import WebKit
@@ -48,30 +49,30 @@ enum WebAppMaker {
         }
         guard let helper = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("aircraft-webapp"),
               FileManager.default.isExecutableFile(atPath: helper.path) else {
-            alert("Не найден aircraft-webapp", "Соберите Aircraft скриптом Scripts/build-app.sh — он кладёт помощника внутрь приложения.")
+            alert(L10n("aircraft-webapp not found"), L10n("Build Aircraft with Scripts/build-app.sh to include the web app helper."))
             return
         }
-        let suggested = cleanName(tab.title, host: url.host ?? "Сайт")
+        let suggested = cleanName(tab.title, host: url.host ?? L10n("Site"))
         let prompt = NSAlert()
-        prompt.messageText = "Добавить «\(url.host ?? "")» как приложение"
-        prompt.informativeText = "Сайт откроется в своём окне с иконкой в Dock. У приложения свои входы на сайты: войти придётся заново."
+        prompt.messageText = L10n("Add “%1$@” as an app", "\(url.host ?? "")")
+        prompt.informativeText = L10n("The site opens in its own Dock window. Sign in again in the new app.")
         let field = NSTextField(string: suggested)
         field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
         prompt.accessoryView = field
-        prompt.addButton(withTitle: "Создать")
-        prompt.addButton(withTitle: "Отмена")
+        prompt.addButton(withTitle: L10n("Create"))
+        prompt.addButton(withTitle: L10n("Cancel"))
         prompt.window.initialFirstResponder = field
         guard prompt.runModal() == .alertFirstButtonReturn else { return }
-        let name = cleanName(field.stringValue, host: url.host ?? "Сайт")
+        let name = cleanName(field.stringValue, host: url.host ?? L10n("Site"))
 
         Task { @MainActor in
             let icon = await siteIcon(for: tab, webView: tab.webView)
             do {
                 let app = try build(name: name, url: url, icon: icon, helper: helper)
-                manager.showToast("Приложение «\(name)» создано", symbol: "dock.rectangle")
+                manager.showToast(L10n("Created “%1$@”", "\(name)"), symbol: "dock.rectangle")
                 NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
             } catch {
-                alert("Не удалось создать приложение", error.localizedDescription)
+                alert(L10n("Could not create app"), error.localizedDescription)
             }
         }
     }
@@ -86,7 +87,7 @@ enum WebAppMaker {
             // Чужое приложение с тем же именем не трогаем.
             guard isWebApp(app) else {
                 throw NSError(domain: "Aircraft", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                    "В «Программах» уже есть «\(name).app». Выберите другое название."])
+                    L10n("“%1$@.app” already exists in Applications. Choose another name.", "\(name)")])
             }
             try fileManager.removeItem(at: app)
         }
@@ -96,6 +97,8 @@ enum WebAppMaker {
         try fileManager.createDirectory(at: macOS, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: resources, withIntermediateDirectories: true)
         try fileManager.copyItem(at: helper, to: macOS.appendingPathComponent("aircraft-webapp"))
+
+        try fileManager.copyItem(at: InterfaceLanguage.resources.bundleURL, to: resources.appendingPathComponent("Aircraft_AircraftLanguage.bundle"))
 
         var info: [String: Any] = [
             "CFBundleExecutable": "aircraft-webapp",
@@ -109,8 +112,8 @@ enum WebAppMaker {
             "NSHighResolutionCapable": true,
             "NSPrincipalClass": "NSApplication",
             "AircraftWebAppURL": url.absoluteString,
-            "NSCameraUsageDescription": "Сайт может попросить камеру для звонков.",
-            "NSMicrophoneUsageDescription": "Сайт может попросить микрофон для звонков."
+            "NSCameraUsageDescription": L10n("Allow this site to request camera access for calls."),
+            "NSMicrophoneUsageDescription": L10n("Allow this site to request microphone access for calls.")
         ]
         if let icon, try writeIcon(icon, to: resources.appendingPathComponent("AppIcon.icns")) {
             info["CFBundleIconFile"] = "AppIcon"
@@ -226,7 +229,7 @@ struct WebAppsSettingsSection: View {
     var body: some View {
         Section {
             if apps.isEmpty {
-                Text("Пока нет. Откройте сайт и выберите Закладки → «Добавить сайт в Dock…».")
+                Text(L10n("Open a site and choose Bookmarks → Add Site to Dock."))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else {
@@ -237,21 +240,21 @@ struct WebAppsSettingsSection: View {
                             .frame(width: 24, height: 24)
                         Text(app.deletingPathExtension().lastPathComponent)
                         Spacer()
-                        Button("Открыть") { NSWorkspace.shared.openApplication(at: app, configuration: .init(), completionHandler: nil) }
+                        Button(L10n("Open")) { NSWorkspace.shared.openApplication(at: app, configuration: .init(), completionHandler: nil) }
                         Button(role: .destructive) {
                             try? FileManager.default.trashItem(at: app, resultingItemURL: nil)
                             apps = WebAppMaker.installedApps
                         } label: { Image(systemName: "trash") }
                             .buttonStyle(.borderless)
-                            .help("Переместить в Корзину")
+                            .help(L10n("app.trash"))
                     }
                 }
-                Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting(apps) }
+                Button(L10n("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting(apps) }
             }
         } header: {
-            Text("Сайты как приложения")
+            Text(L10n("Web apps"))
         } footer: {
-            Text("Приложения создаются в папке «Программы» (\(WebAppMaker.appsFolder.path)) — их видно в Launchpad и Spotlight. Каждое — отдельное окно с иконкой в Dock и своими входами на сайты. Ссылки на другие сайты открываются в Aircraft.")
+            Text(L10n("Apps are saved in Applications (%1$@), appear in Spotlight and Launchpad, and have separate sign-ins. External links open in Aircraft.", "\(WebAppMaker.appsFolder.path)"))
                 .foregroundStyle(.secondary)
         }
         .onAppear { apps = WebAppMaker.installedApps }

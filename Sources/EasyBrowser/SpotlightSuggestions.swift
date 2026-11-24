@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 
@@ -78,7 +79,7 @@ final class SpotlightSuggestionEngine {
             .prefix(8)
             .map { tab in
                 SpotlightSuggestion(kind: .tab(tab.id), title: tab.title.isEmpty ? shortURL(tab.url!) : tab.title,
-                                    subtitle: "Недавняя вкладка · \(tab.url.map(shortURL) ?? "")",
+                                    subtitle: L10n("Recent tab · %1$@", "\(tab.url.map(shortURL) ?? "")"),
                                     symbol: "square.on.square", url: tab.url)
             }
     }
@@ -110,7 +111,7 @@ final class SpotlightSuggestionEngine {
         for tab in tabs {
             _ = seen(tab.url)
             result.append(.init(kind: .tab(tab.id), title: tab.title.isEmpty ? Self.shortURL(tab.url!) : tab.title,
-                                subtitle: "Открытая вкладка · \(tab.url.map(Self.shortURL) ?? "")",
+                                subtitle: L10n("Open tab · %1$@", "\(tab.url.map(Self.shortURL) ?? "")"),
                                 symbol: "square.on.square", url: tab.url))
         }
 
@@ -127,7 +128,7 @@ final class SpotlightSuggestionEngine {
         }
 
         for entry in manager.archive?.search(query, limit: 2) ?? [] where !seen(entry.tab.url) {
-            result.append(.init(kind: .archive(entry.id), title: entry.tab.title, subtitle: "Архив · \(entry.tab.url?.host ?? "")",
+            result.append(.init(kind: .archive(entry.id), title: entry.tab.title, subtitle: L10n("Archive · %1$@", "\(entry.tab.url?.host ?? "")"),
                                 symbol: "archivebox", url: entry.tab.url))
         }
 
@@ -248,8 +249,8 @@ private struct SpotlightRow: View {
 
     private var hint: String? {
         switch item.kind {
-        case .tab: "Переключиться"
-        case .archive: "Вернуть"
+        case .tab: L10n("Switch")
+        case .archive: L10n("Restore")
         default: selected ? "↩" : nil
         }
     }

@@ -16,7 +16,7 @@ public struct WebContainerView: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> NSView {
         // Создаем исключительно пустой NSView контейнер
-        let containerView = NSView()
+        let containerView = PageKeyFallbackView()
         containerView.wantsLayer = true
         return containerView
     }
@@ -51,5 +51,19 @@ public struct WebContainerView: NSViewRepresentable {
             }
         }
         container.subviews.forEach { $0.removeFromSuperview() }
+    }
+}
+
+/// WebKit resends unhandled key-down events through AppKit after DOM dispatch.
+/// A page can observe game controls without cancelling their default action.
+final class PageKeyFallbackView: NSView {
+    override func keyDown(with event: NSEvent) {
+        let shortcuts: NSEvent.ModifierFlags = [.command, .control, .option]
+        let isArrow = (123...126).contains(event.keyCode)
+        let isText = event.charactersIgnoringModifiers?.unicodeScalars.contains {
+            !CharacterSet.controlCharacters.contains($0) && !(0xF700...0xF8FF).contains($0.value)
+        } == true
+        if event.modifierFlags.intersection(shortcuts).isEmpty && (isArrow || isText) { return }
+        super.keyDown(with: event)
     }
 }

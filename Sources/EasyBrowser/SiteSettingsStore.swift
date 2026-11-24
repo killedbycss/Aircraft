@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import Observation
 
@@ -10,9 +11,9 @@ public enum SitePermission: String, Codable, CodingKeyRepresentable, CaseIterabl
 
     public var title: String {
         switch self {
-        case .camera: "Камера"
-        case .microphone: "Микрофон"
-        case .location: "Геопозиция"
+        case .camera: L10n("Camera")
+        case .microphone: L10n("Microphone")
+        case .location: L10n("Location")
         }
     }
 

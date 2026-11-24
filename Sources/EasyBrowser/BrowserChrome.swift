@@ -1,3 +1,4 @@
+import AircraftLanguage
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
@@ -148,7 +149,7 @@ struct FindBarView: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Найти на странице", text: $query)
+            TextField(L10n("Find on page"), text: $query)
                 .textFieldStyle(.plain)
                 .frame(width: 180)
                 .focused($focused)
@@ -165,11 +166,11 @@ struct FindBarView: View {
                 .frame(minWidth: 52, alignment: .trailing)
             Divider().frame(height: 14)
             Button { tabManager.find(forward: false) } label: { Image(systemName: "chevron.up") }
-                .help("Предыдущее (⌘⇧G)")
+                .help(L10n("Previous (⌘⇧G)"))
             Button { tabManager.find(forward: true) } label: { Image(systemName: "chevron.down") }
-                .help("Следующее (⌘G)")
+                .help(L10n("Next (⌘G)"))
             Button { tabManager.closeFindBar() } label: { Image(systemName: "xmark") }
-                .help("Закрыть (Esc)")
+                .help(L10n("Close (Esc)"))
         }
         .buttonStyle(.plain)
         .font(.system(size: 12, weight: .medium))
@@ -188,8 +189,8 @@ struct FindBarView: View {
     private var counter: String {
         guard !query.isEmpty else { return "" }
         let state = tabManager.findBar
-        if state.total == 0 { return "Нет" }
-        return state.current > 0 ? "\(state.current) из \(state.total)" : "\(state.total)"
+        if state.total == 0 { return L10n("None") }
+        return state.current > 0 ? L10n("%1$@ of %2$@", "\(state.current)", "\(state.total)") : "\(state.total)"
     }
 }
 
@@ -222,17 +223,17 @@ struct ProfileBar: View {
     static func createProfile(in tabManager: TabManager) {
         let store = ProfileStore.shared
         let alert = NSAlert()
-        alert.messageText = "Новый профиль"
-        alert.informativeText = "У профиля свои cookie, история, закладки и вкладки."
+        alert.messageText = L10n("New profile")
+        alert.informativeText = L10n("Profiles keep cookies, history, bookmarks and tabs separate.")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.placeholderString = "Работа"
+        field.placeholderString = L10n("Work")
         alert.accessoryView = field
-        alert.addButton(withTitle: "Создать")
-        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: L10n("Create"))
+        alert.addButton(withTitle: L10n("Cancel"))
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let name = field.stringValue.trimmingCharacters(in: .whitespaces)
-        let profile = store.create(name: name.isEmpty ? "Профиль \(store.profiles.count + 1)" : name)
+        let profile = store.create(name: name.isEmpty ? L10n("Profile %1$@", "\(store.profiles.count + 1)") : name)
         tabManager.switchProfile(to: profile.id)
     }
 }

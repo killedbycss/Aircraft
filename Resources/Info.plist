@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array><string>ru</string><string>en</string></array>
     <key>CFBundleExecutable</key>
     <string>Aircraft</string>
     <key>CFBundleIdentifier</key>
@@ -80,13 +84,13 @@
         </dict>
     </array>
     <key>NSCameraUsageDescription</key>
-    <string>Сайты, которым вы разрешите, смогут использовать камеру — например, для видеозвонков.</string>
+    <string>Sites can request camera access for video calls.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Сайты, которым вы разрешите, смогут использовать микрофон — например, для звонков и голосовых сообщений.</string>
+    <string>Sites can request microphone access for calls and recordings.</string>
     <key>NSLocationUsageDescription</key>
-    <string>Сайты, которым вы разрешите, смогут узнать ваше местоположение — например, для карт.</string>
+    <string>Sites can request your location for maps.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Сайты, которым вы разрешите, смогут узнать ваше местоположение — например, для карт.</string>
+    <string>Sites can request your location for maps.</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
     <key>NSAppTransportSecurity</key>

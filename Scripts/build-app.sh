@@ -25,6 +25,8 @@ xcrun actool "$PROJECT_DIR/Sources/aircraft.icon" \
 [[ "$APP_DIR" == "$PROJECT_DIR/dist/Aircraft.app" ]] || exit 1
 rm -rf -- "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
+cp -R "$PRODUCT_DIR/Aircraft_AircraftLanguage.bundle" "$APP_DIR/Contents/Resources/"
+cp -R "$PROJECT_DIR"/Resources/*.lproj "$APP_DIR/Contents/Resources/"
 cp "$PRODUCT_DIR/Aircraft" "$APP_DIR/Contents/MacOS/Aircraft"
 cp "$PRODUCT_DIR/aircraft-mcp" "$APP_DIR/Contents/MacOS/aircraft-mcp"
 cp "$PRODUCT_DIR/aircraft-webapp" "$APP_DIR/Contents/MacOS/aircraft-webapp"

@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 import Observation
@@ -43,7 +44,7 @@ public final class ProfileStore {
     private init() {
         profiles = JSONFile.load([Profile].self, from: fileURL) ?? []
         if !profiles.contains(where: \.isDefault) {
-            profiles.insert(Profile(id: UUID(), name: "Личный", colorIndex: 0, symbol: "person.fill", isDefault: true), at: 0)
+            profiles.insert(Profile(id: UUID(), name: L10n("Personal"), colorIndex: 0, symbol: "person.fill", isDefault: true), at: 0)
             save()
         }
         lastUsedProfileID = UserDefaults.standard.string(forKey: "lastUsedProfileID").flatMap(UUID.init(uuidString:))

@@ -110,7 +110,7 @@
     root.innerHTML = `<style>
       :host{all:initial} .panel{position:fixed;z-index:2147483647;left:12px;right:12px;bottom:12px;height:min(42vh,360px);display:none;background:#111;color:#eee;border:1px solid #444;border-radius:12px;box-shadow:0 18px 55px #0008;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}
       .panel.open{display:flex;flex-direction:column}.bar{height:38px;display:flex;align-items:center;gap:8px;padding:0 12px;background:#1d1d1f;border-bottom:1px solid #444}.title{font:600 12px -apple-system,sans-serif;flex:1}.bar button{color:#ddd;background:#333;border:0;border-radius:6px;padding:5px 9px}.rows{overflow:auto;flex:1}.row{display:grid;grid-template-columns:74px 64px 1fr;gap:8px;padding:5px 10px;border-bottom:1px solid #ffffff12;white-space:pre-wrap;word-break:break-word}.warn{color:#ffd76a}.error{color:#ff8b8b}.network{color:#79c7ff}
-    </style><section class="panel"><header class="bar"><span class="title">Aircraft DevTools · ⌘⌥I</span><button data-clear>Очистить</button><button data-close>Закрыть</button></header><div class="rows"></div></section>`;
+    </style><section class="panel"><header class="bar"><span class="title">Aircraft DevTools · ⌘⌥I</span><button data-clear>${window.aircraft?.language === "en" ? "Clear" : "Очистить"}</button><button data-close>${window.aircraft?.language === "en" ? "Close" : "Закрыть"}</button></header><div class="rows"></div></section>`;
     document.documentElement.append(host);
     const panel = root.querySelector(".panel");
     const rows = root.querySelector(".rows");

@@ -1,3 +1,4 @@
+import AircraftLanguage
 import Foundation
 import WebKit
 
@@ -22,7 +23,7 @@ extension TabManager {
             case "closed": tabs[index].isReaderActive = false
             default:
                 tabs[index].isReaderActive = false
-                showToast("Не удалось найти статью на странице", symbol: "doc.plaintext")
+                showToast(L10n("No article found on this page"), symbol: "doc.plaintext")
             }
         }
     }
@@ -193,16 +194,16 @@ enum ReaderMode {
       </style>
       <div class="page">
         <div class="bar">
-          <span class="grow">Режим чтения · ${minutes} мин</span>
-          <button data-a="smaller" title="Меньше">A−</button>
-          <button data-a="bigger" title="Больше">A+</button>
-          <button data-a="font" title="Шрифт">Aa</button>
-          <button data-a="narrow" title="Уже">⇥⇤</button>
-          <button data-a="wide" title="Шире">⇤⇥</button>
-          <button class="swatch" data-a="light" style="background:#fff"></button>
-          <button class="swatch" data-a="sepia" style="background:#f8f1e3"></button>
-          <button class="swatch" data-a="dark" style="background:#1c1c1e"></button>
-          <button data-a="close" title="Закрыть (Esc)">✕</button>
+          <span class="grow">\#(L10n("Reader Mode")) · ${minutes} \#(L10n("min"))</span>
+          <button data-a="smaller" title="\#(L10n("Smaller"))">A−</button>
+          <button data-a="bigger" title="\#(L10n("Larger"))">A+</button>
+          <button data-a="font" title="\#(L10n("Font"))">Aa</button>
+          <button data-a="narrow" title="\#(L10n("Narrower"))">⇥⇤</button>
+          <button data-a="wide" title="\#(L10n("Wider"))">⇤⇥</button>
+          <button class="swatch" data-a="light" title="\#(L10n("Light"))" style="background:#fff"></button>
+          <button class="swatch" data-a="sepia" title="\#(L10n("Sepia"))" style="background:#f8f1e3"></button>
+          <button class="swatch" data-a="dark" title="\#(L10n("Dark"))" style="background:#1c1c1e"></button>
+          <button data-a="close" title="\#(L10n("Close (Esc)"))">✕</button>
         </div>
         <article>
           <div class="site"></div>
@@ -213,7 +214,7 @@ enum ReaderMode {
       </div>`;
     root.querySelector('.site').textContent = site;
     root.querySelector('.title').textContent = title.trim();
-    root.querySelector('.meta').textContent = [byline, `${minutes} мин чтения`].filter(Boolean).join(' · ');
+    root.querySelector('.meta').textContent = [byline, `${minutes} \#(L10n("min read"))`].filter(Boolean).join(' · ');
     root.querySelector('.content').appendChild(content);
     const page = root.querySelector('.page');
     const apply = () => {

@@ -1,3 +1,4 @@
+import AircraftLanguage
 import AppKit
 import WebKit
 
@@ -58,10 +59,10 @@ enum ElementPicker {
         </style>
         <div class="box"></div>
         <div class="bar">
-          <span class="sel">Наведите на рекламу и кликните</span>
-          <span class="hint">↑ шире · ↓ уже · Esc отмена</span>
-          <button class="cancel">Отмена</button>
-          <button class="ok" disabled>Скрыть</button>
+          <span class="sel">\#(L10n("Click an element to hide"))</span>
+          <span class="hint">\#(L10n("↑ expand · ↓ narrow · Esc cancel"))</span>
+          <button class="cancel">\#(L10n("Cancel"))</button>
+          <button class="ok" disabled>\#(L10n("Hide"))</button>
         </div>`;
       document.documentElement.appendChild(host);
       const box = shadow.querySelector('.box');
