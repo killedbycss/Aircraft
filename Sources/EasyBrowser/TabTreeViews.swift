@@ -128,7 +128,7 @@ struct TabTreeNodeView: View {
                     RoundedRectangle(cornerRadius: 1)
                         .fill(GroupPalette.color(folder.colorIndex))
                         .frame(width: 2)
-                        .padding(.leading, CGFloat(depth) * 12 + 3)
+                        .padding(.leading, CGFloat(depth) * BrowserDesign.Space.treeIndent + 3)
                         .padding(.vertical, 6)
                 }
             }
@@ -174,7 +174,7 @@ private struct FolderHeader: View {
             if isRenaming {
                 TextField("Название", text: $draftTitle)
                     .textFieldStyle(.plain)
-                    .font(.system(size: (style == .mobile ? 13 : 12) * tabScale, weight: .semibold))
+                    .font(BrowserDesign.TypeRole.title(scale: tabScale, large: style == .mobile, emphasized: true))
                     .focused($titleFocused)
                     .onSubmit { tabManager.renameFolder(folder.id, to: draftTitle) }
                     .onExitCommand { tabManager.renamingFolderID = nil }
@@ -187,7 +187,7 @@ private struct FolderHeader: View {
                     }
             } else {
                 Text(folder.title)
-                    .font(.system(size: (style == .mobile ? 13 : 12) * tabScale, weight: .semibold))
+                    .font(BrowserDesign.TypeRole.title(scale: tabScale, large: style == .mobile, emphasized: true))
                     .lineLimit(1)
                     .foregroundStyle(titleColor)
             }
@@ -200,10 +200,10 @@ private struct FolderHeader: View {
                     .background(Capsule().fill(Color.primary.opacity(0.08)))
             }
         }
-        .padding(.leading, CGFloat(depth) * 12 + 8)
+        .padding(.leading, CGFloat(depth) * BrowserDesign.Space.treeIndent + 8)
         .padding(.trailing, 10)
         .frame(height: (style == .mobile ? 36 : 26) * tabScale)
-        .background(headerFill, in: RoundedRectangle(cornerRadius: 6))
+        .background(headerFill, in: BrowserDesign.Shape.row)
         .contentShape(Rectangle())
         .onTapGesture { if !isRenaming { tabManager.toggleFolderExpanded(folder.id) } }
         .draggable(TabDragPayload.encode(folder.id)) {
@@ -225,7 +225,7 @@ private struct FolderHeader: View {
     }
 
     private var headerFill: Color {
-        if targeted { return Color.accentColor.opacity(0.18) }
+        if targeted { return BrowserDesign.Surface.selection }
         if folder.kind == .folder, let color = folder.folderColor {
             return GroupPalette.color(color).opacity(colorScheme == .dark ? 0.22 : 0.14)
         }
@@ -286,16 +286,16 @@ struct TabRow: View {
     private var mobile: Bool { style == .mobile }
 
     var body: some View {
-        HStack(spacing: mobile ? 12 : 8) {
+        HStack(spacing: mobile ? 12 : BrowserDesign.Space.iconGap) {
             TabFavicon(tab: tab, copied: copied, size: (mobile ? 18 : 14) * tabScale)
             VStack(alignment: .leading, spacing: 1) {
                 Text(tab.title.isEmpty ? "Новая вкладка" : tab.title)
-                    .font(.system(size: (mobile ? 14 : 12) * tabScale, weight: mobile ? .medium : .regular))
+                    .font(BrowserDesign.TypeRole.title(scale: tabScale, large: mobile, emphasized: isActive))
                     .lineLimit(1)
-                    .foregroundColor(isActive || mobile ? .primary : .secondary)
-                if !mobile || tab.url != nil {
+                    .foregroundStyle(.primary)
+                if tab.url != nil {
                     Text(subtitle)
-                        .font(.system(size: (mobile ? 10 : 9) * tabScale))
+                        .font(BrowserDesign.TypeRole.detail(scale: tabScale))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
@@ -319,10 +319,10 @@ struct TabRow: View {
             }
         }
         .padding(.vertical, (mobile ? 0 : 7) * tabScale)
-        .padding(.leading, CGFloat(depth) * 12 + (mobile ? 12 : 10))
-        .padding(.trailing, mobile ? 12 : 10)
+        .padding(.leading, CGFloat(depth) * BrowserDesign.Space.treeIndent + (mobile ? 12 : BrowserDesign.Space.rowInset))
+        .padding(.trailing, mobile ? 12 : BrowserDesign.Space.rowInset)
         .frame(height: mobile ? 48 * tabScale : nil)
-        .background(background, in: RoundedRectangle(cornerRadius: mobile ? 12 : 6))
+        .background(background, in: BrowserDesign.Shape.row)
         .overlay(alignment: .top) {
             if targeted {
                 Capsule().fill(Color.accentColor).frame(height: 2).padding(.horizontal, 6).offset(y: -1)
@@ -354,9 +354,7 @@ struct TabRow: View {
     }
 
     private var background: Color {
-        if isSelected { return Color.accentColor.opacity(0.18) }
-        if isActive { return Color.primary.opacity(mobile ? 0.08 : 0.12) }
-        return Color.primary.opacity(hovering ? 0.04 : 0)
+        BrowserDesign.Surface.tab(active: isActive, hovered: hovering, selected: isSelected)
     }
 
     private func handleTap() {

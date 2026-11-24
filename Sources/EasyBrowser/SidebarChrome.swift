@@ -66,11 +66,12 @@ struct ChromeIconButton: View {
                 .font(.system(size: fontSize, weight: .semibold))
                 .foregroundStyle(active ? Color.accentColor : .secondary)
                 .frame(width: fontSize * 2.2, height: fontSize * 2.2)
-                .background(Color.primary.opacity(hovering ? 0.08 : 0), in: RoundedRectangle(cornerRadius: 6))
+                .background(hovering ? BrowserDesign.Surface.hover : .clear, in: BrowserDesign.Shape.control)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        .accessibilityLabel(help)
         .help(help)
     }
 }
@@ -87,12 +88,12 @@ struct AddressCard: View {
 
     var body: some View {
         let tab = tabManager.activeTab
-        HStack(spacing: 8 * tabScale) {
+        HStack(spacing: BrowserDesign.Space.iconGap * tabScale) {
             if tab?.url != nil {
                 FaviconImage(url: tab?.url, image: tab?.favicon, size: 16 * tabScale)
             } else {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12 * tabScale, weight: .semibold))
+                    .font(BrowserDesign.TypeRole.title(scale: tabScale, emphasized: true))
                     .foregroundStyle(.secondary)
                     .frame(width: 16 * tabScale)
             }
@@ -117,7 +118,7 @@ struct AddressCard: View {
                         }
                         Text(address).lineLimit(1).truncationMode(.middle)
                     }
-                    .font(.system(size: 10 * tabScale))
+                    .font(BrowserDesign.TypeRole.detail(scale: tabScale))
                     .foregroundStyle(.secondary)
                 }
             }
@@ -136,8 +137,8 @@ struct AddressCard: View {
         }
         .padding(.horizontal, 10 * tabScale)
         .padding(.vertical, 7 * tabScale)
-        .background(Color.primary.opacity(hovering ? 0.09 : 0.06), in: RoundedRectangle(cornerRadius: 10))
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .background(hovering ? BrowserDesign.Surface.fieldHover : BrowserDesign.Surface.field, in: BrowserDesign.Shape.field)
+        .contentShape(BrowserDesign.Shape.field)
         .onHover { hovering = $0 }
         .onTapGesture {
             NotificationCenter.default.post(name: .showCurrentURLSpotlight, object: tabManager.hostWindow ?? NSApp.keyWindow)

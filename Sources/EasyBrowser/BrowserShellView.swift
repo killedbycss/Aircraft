@@ -2201,8 +2201,8 @@ private struct PinnedTabStripItem: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(isActive ? Color.primary.opacity(0.10) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .background(BrowserDesign.Surface.tab(active: isActive, hovered: false))
+            .clipShape(BrowserDesign.Shape.row)
         }
         .buttonStyle(.plain)
         .help(tab.title)
@@ -2245,11 +2245,11 @@ private struct TabStripItem: View {
             }
             VStack(alignment: .leading, spacing: 0) {
                 Text(tab.title.isEmpty ? "Заголовок" : tab.title)
-                    .font(.system(size: 11 * tabScale, weight: .medium))
+                    .font(BrowserDesign.TypeRole.title(scale: tabScale, emphasized: isActive))
                     .lineLimit(1)
                 if showsURL {
                     Text(tab.url?.host ?? "")
-                        .font(.system(size: 8 * tabScale))
+                        .font(BrowserDesign.TypeRole.detail(scale: tabScale))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
@@ -2269,8 +2269,8 @@ private struct TabStripItem: View {
         }
         .padding(.horizontal, 10 * tabScale)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(isActive ? Color.primary.opacity(0.10) : Color.primary.opacity(isHovering ? 0.04 : 0))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background(BrowserDesign.Surface.tab(active: isActive, hovered: isHovering))
+        .clipShape(BrowserDesign.Shape.row)
         .contentShape(Rectangle())
         .onTapGesture { isActive ? copyURL() : tabManager.selectTab(id: tab.id) }
         .onHover { isHovering = $0 }
@@ -2456,7 +2456,7 @@ private struct MobileAddressField: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 36)
-        .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+        .background(BrowserDesign.Surface.field, in: BrowserDesign.Shape.field)
         .onAppear { value = tabManager.activeTab?.url?.absoluteString ?? "" }
         .onChange(of: tabManager.activeTabID) { _, _ in value = tabManager.activeTab?.url?.absoluteString ?? "" }
     }
