@@ -1,6 +1,43 @@
 import Foundation
 
 enum ModCatalog {
+    // SECURITY REVIEW: user mods must declare bounded HTTP(S) hosts. A bare wildcard host is rejected.
+    static func validatedMatchPatterns(in source: String) -> [String]? {
+        let lines = source.components(separatedBy: .newlines)
+        let declarations = lines.compactMap { line -> String? in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("// @match ") || trimmed.hasPrefix("/* @match ") else { return nil }
+            return trimmed.replacingOccurrences(of: "*/", with: "")
+                .components(separatedBy: "@match ").last?.trimmingCharacters(in: .whitespaces)
+        }
+        guard !declarations.isEmpty else { return nil }
+        var patterns: [String] = []
+        for declaration in declarations {
+            guard let url = URLComponents(string: declaration),
+                  let scheme = url.scheme, ["http", "https"].contains(scheme),
+                  let host = url.host?.lowercased(), !host.isEmpty,
+                  host != "*", !host.contains(".."),
+                  host.range(of: #"^(?:\*\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+$"#, options: .regularExpression) != nil,
+                  url.user == nil, url.password == nil, url.port == nil,
+                  url.query == nil, url.fragment == nil,
+                  url.path.hasPrefix("/") else { return nil }
+            let hostPattern = host.hasPrefix("*.")
+                ? #"(?:[a-z0-9-]+\.)*"# + NSRegularExpression.escapedPattern(for: String(host.dropFirst(2)))
+                : NSRegularExpression.escapedPattern(for: host)
+            let pathPattern = url.path.components(separatedBy: "*")
+                .map(NSRegularExpression.escapedPattern(for:)).joined(separator: ".*")
+            patterns.append("^" + scheme + "://" + hostPattern + "(?::[0-9]+)?" + pathPattern + "(?:\\?.*)?$" )
+        }
+        return patterns
+    }
+
+    static func guardedSource(_ source: String, bundled: Bool, matchSource: String? = nil) -> String? {
+        if bundled { return source }
+        guard let patterns = validatedMatchPatterns(in: matchSource ?? source),
+              let data = try? JSONSerialization.data(withJSONObject: patterns),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return "(() => { if (!(" + json + ").some(p => new RegExp(p, 'i').test(location.href))) return;\n" + source + "\n})();"
+    }
     /// Моды, которые остаются модами: они заметно нагружают систему
     /// (скрипт в каждой странице или вторая живая страница рядом).
     static let bundledBaseNames = [

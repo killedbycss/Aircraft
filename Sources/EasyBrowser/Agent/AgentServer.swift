@@ -19,7 +19,8 @@ final class AgentServer {
     static let tokenKey = "agentServerToken"
     static let defaultPort = 7777
 
-    static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+    // SECURITY REVIEW: opt-in only; absence of the setting is disabled.
+    static var isEnabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? false }
 
     static var port: Int {
         let value = UserDefaults.standard.integer(forKey: portKey)
@@ -74,6 +75,8 @@ final class AgentServer {
 
     func start() {
         guard listener == nil else { return }
+        // SECURITY REVIEW: a fresh cryptographic token invalidates credentials from previous runs.
+        Self.regenerateToken()
         guard let port = NWEndpoint.Port(rawValue: UInt16(Self.port)) else {
             state = .failed(L10n("Invalid port"))
             return
@@ -140,7 +143,11 @@ final class AgentServer {
     }
 
     private func respond(to request: AgentHTTPRequest) async -> AgentHTTPResponse {
-        if let origin = request.headers["origin"], !Self.isLocalOrigin(origin) {
+        // SECURITY REVIEW: reject DNS rebinding and ambiguous authority headers before authentication.
+        guard Self.isValidHost(request.headers["host"], port: Self.port) else {
+            return AgentHTTPResponse(status: 403, json: ["error": "Forbidden host"])
+        }
+        if let origin = request.headers["origin"], !Self.isLocalOrigin(origin, port: Self.port) {
             return AgentHTTPResponse(status: 403, json: ["error": "Forbidden origin"])
         }
         let path = request.path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? request.path
@@ -164,9 +171,17 @@ final class AgentServer {
         }
     }
 
-    private static func isLocalOrigin(_ origin: String) -> Bool {
-        guard let host = URL(string: origin)?.host else { return false }
-        return host == "127.0.0.1" || host == "localhost" || host == "::1"
+    static func isValidHost(_ authority: String?, port: Int) -> Bool {
+        guard let authority else { return false }
+        return authority == "127.0.0.1:\(port)" || authority == "localhost:\(port)"
+    }
+
+    static func isLocalOrigin(_ origin: String, port: Int) -> Bool {
+        guard let url = URLComponents(string: origin), url.scheme == "http",
+              let host = url.host, ["127.0.0.1", "localhost"].contains(host),
+              url.port == port, url.user == nil, url.password == nil,
+              url.path.isEmpty, url.query == nil, url.fragment == nil else { return false }
+        return true
     }
 
     private static func isAuthorized(_ header: String?) -> Bool {
@@ -325,8 +340,10 @@ final class AgentHTTPConnection {
         guard requestLine.count >= 2 else { send(AgentHTTPResponse(status: 400)); return true }
         var headers: [String: String] = [:]
         for line in lines {
-            guard let colon = line.firstIndex(of: ":") else { continue }
+            guard let colon = line.firstIndex(of: ":") else { send(AgentHTTPResponse(status: 400)); return true }
             let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+            // SECURITY REVIEW: duplicate authority/authentication headers are ambiguous; reject them.
+            guard !name.isEmpty, headers[name] == nil else { send(AgentHTTPResponse(status: 400)); return true }
             headers[name] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
         let length = Int(headers["content-length"] ?? "0") ?? 0

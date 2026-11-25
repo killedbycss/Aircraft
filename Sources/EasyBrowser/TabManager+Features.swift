@@ -192,7 +192,8 @@ extension TabManager {
 
     func applyTabMediaState(id: UUID) {
         guard let tab = tabs.first(where: { $0.id == id }), let webView = tab.webView else { return }
-        WebKitPrivate.setMuted(tab.isMuted, webView: webView)
+        // SECURITY REVIEW: public DOM fallback covers media elements in the main frame.
+        webView.evaluateJavaScript("document.querySelectorAll('audio,video').forEach(e => e.muted = \(tab.isMuted))", completionHandler: nil)
     }
 
     // MARK: Поиск по странице (⌘F)
@@ -337,9 +338,14 @@ final class PageSignals: NSObject, WKScriptMessageHandler {
 
     func install(into controller: WKUserContentController) {
         controller.removeScriptMessageHandler(forName: Self.name, contentWorld: .defaultClient)
-        controller.add(self, contentWorld: .defaultClient, name: Self.name)
+        // SECURITY REVIEW: avoid the controller -> handler -> manager retention path.
+        controller.add(WeakScriptMessageHandler(self), contentWorld: .defaultClient, name: Self.name)
         controller.addUserScript(WKUserScript(source: Self.source, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false, in: .defaultClient))
+    }
+
+    static func removeHandler(from controller: WKUserContentController) {
+        controller.removeScriptMessageHandler(forName: name, contentWorld: .defaultClient)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -388,51 +394,6 @@ final class PageSignals: NSObject, WKScriptMessageHandler {
       }, true);
     })();
     """
-}
-
-// MARK: - Приватные API WebKit
-
-/// Вызовы приватных методов WebKit с проверкой, что метод существует.
-@MainActor
-enum WebKitPrivate {
-    /// `-[WKWebView _setPageMuted:]`, бит 0 — звук.
-    static func setMuted(_ muted: Bool, webView: WKWebView) {
-        let selector = NSSelectorFromString("_setPageMuted:")
-        guard webView.responds(to: selector), let method = class_getInstanceMethod(WKWebView.self, selector) else { return }
-        typealias Function = @convention(c) (AnyObject, Selector, UInt) -> Void
-        let function = unsafeBitCast(method_getImplementation(method), to: Function.self)
-        function(webView, selector, muted ? 1 : 0)
-    }
-
-    static var canObservePlayingAudio: Bool {
-        WKWebView.instancesRespond(to: NSSelectorFromString("_isPlayingAudio"))
-    }
-}
-
-/// Классический KVO для приватных свойств, у которых нет Swift key path.
-final class KeyValueToken: NSObject {
-    private weak var object: NSObject?
-    private let keyPath: String
-    private let handler: (Any?) -> Void
-
-    init(object: NSObject, keyPath: String, handler: @escaping (Any?) -> Void) {
-        self.object = object
-        self.keyPath = keyPath
-        self.handler = handler
-        super.init()
-        object.addObserver(self, forKeyPath: keyPath, options: [.initial, .new], context: nil)
-    }
-
-    func invalidate() {
-        object?.removeObserver(self, forKeyPath: keyPath)
-        object = nil
-    }
-
-    deinit { invalidate() }
-
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
-        handler(change?[.newKey])
-    }
 }
 
 // MARK: - Картинка в картинке

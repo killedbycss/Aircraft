@@ -48,7 +48,6 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored public weak var hostWindow: NSWindow?
     @ObservationIgnored lazy var incognitoStore: WKWebsiteDataStore = .nonPersistent()
     @ObservationIgnored lazy var incognitoSites = SiteSettingsStore(url: nil, seed: ProfileStore.shared.sites(for: profileID).sites)
-    @ObservationIgnored private var kvoTokens: [UUID: [KeyValueToken]] = [:]
     @ObservationIgnored let pageSignals = PageSignals()
     /// Вкладки, открытые как всплывающие окна входа — их не группируем.
     @ObservationIgnored private var popupTabIDs: Set<UUID> = []
@@ -270,6 +269,10 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         cancelPermissionRequests(tabID: id)
         appLinkOffers[id] = nil
         let tabToClose = tabs[index]
+        if let controller = tabToClose.webView?.configuration.userContentController {
+            ScriptBridge.removeHandler(from: controller)
+            PageSignals.removeHandler(from: controller)
+        }
         tabToClose.webView?.stopLoading()
         tabToClose.webView?.navigationDelegate = nil
         tabToClose.webView?.uiDelegate = nil
@@ -518,27 +521,13 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         saveSession()
     }
 
-    /// Открывает или закрывает встроенный Web Inspector WebKit для активной вкладки (F12, ⌥⌘I).
-    /// Использует приватный `_WKInspector`, который WebKit отдаёт через `-[WKWebView _inspector]`.
+    /// SECURITY REVIEW: public API enables inspection; WebKit owns the inspector UI.
     public func toggleWebInspector() {
-        guard let webView = activeWebView else { return }
-        webView.configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        guard let inspector = Self.inspector(of: webView) else { return }
-        let isVisible = (inspector.value(forKey: "visible") as? Bool) ?? false
-        let action = NSSelectorFromString(isVisible ? "close" : "show")
-        if inspector.responds(to: action) { inspector.perform(action) }
+        activeWebView?.isInspectable = true
     }
 
     static func closeWebInspector(of webView: WKWebView) {
-        guard let inspector = inspector(of: webView),
-              (inspector.value(forKey: "visible") as? Bool) == true else { return }
-        inspector.perform(NSSelectorFromString("close"))
-    }
-
-    private static func inspector(of webView: WKWebView) -> NSObject? {
-        let selector = NSSelectorFromString("_inspector")
-        guard webView.responds(to: selector) else { return nil }
-        return webView.perform(selector)?.takeUnretainedValue() as? NSObject
+        webView.isInspectable = false
     }
 
     public func toggleModPanel(_ capability: String) {
@@ -576,6 +565,8 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         if let webView = tabs[index].webView {
             TabManager.closeWebInspector(of: webView)
             MarkdownViewer.stopWatching(webView)
+            ScriptBridge.removeHandler(from: webView.configuration.userContentController)
+            PageSignals.removeHandler(from: webView.configuration.userContentController)
         }
 
         removeObservations(for: id)
@@ -785,6 +776,10 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             tab.webView?.stopLoading()
             tab.webView?.navigationDelegate = nil
             tab.webView?.uiDelegate = nil
+            if let controller = tab.webView?.configuration.userContentController {
+                ScriptBridge.removeHandler(from: controller)
+                PageSignals.removeHandler(from: controller)
+            }
         }
         otherSets[profileID.uuidString] = current
         profileID = id
@@ -804,6 +799,12 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     func profileWasDeleted(_ id: UUID) {
         otherSets[id.uuidString] = nil
         if profileID == id {
+            for tab in tabs {
+                if let controller = tab.webView?.configuration.userContentController {
+                    ScriptBridge.removeHandler(from: controller)
+                    PageSignals.removeHandler(from: controller)
+                }
+            }
             let fallback = ProfileStore.shared.defaultProfile.id
             otherSets[profileID.uuidString] = nil
             profileID = fallback
@@ -823,6 +824,10 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             tabs[index].webView?.stopLoading()
             tabs[index].webView?.navigationDelegate = nil
             tabs[index].webView?.uiDelegate = nil
+            if let controller = tabs[index].webView?.configuration.userContentController {
+                ScriptBridge.removeHandler(from: controller)
+                PageSignals.removeHandler(from: controller)
+            }
 
             let webView = createWebView()
             tabs[index].webView = webView
@@ -844,7 +849,6 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         config.allowsAirPlayForMediaPlayback = true
         pageSignals.install(into: config.userContentController)
         // Включает встроенный Web Inspector (F12, «Проверить элемент» в контекстном меню).
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         config.defaultWebpagePreferences.preferredContentMode = mobileBrowsing ? .mobile : .desktop
         // «Version/… Safari/…» — иначе Google считает браузер устаревшим или встроенным окном.
         config.applicationNameForUserAgent = SiteIdentity.safariApplicationName
@@ -899,8 +903,12 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
             }
             guard let source = try? String(contentsOf: file, encoding: .utf8) else { continue }
             switch file.pathExtension.lowercased() {
-            case "js": scriptBridge.injectCustomScript(source, into: controller)
-            case "css": scriptBridge.injectCSS(source, into: controller)
+            case "js":
+                if let guarded = ModCatalog.guardedSource(source, bundled: ModCatalog.family(for: file.lastPathComponent) != nil) {
+                    scriptBridge.injectCustomScript(guarded, into: controller)
+                }
+            case "css":
+                scriptBridge.injectCSS(source, into: controller, bundled: ModCatalog.family(for: file.lastPathComponent) != nil)
             default: break
             }
         }
@@ -968,15 +976,6 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
         }
 
         webViewObservers[tabID] = [titleObs, urlObs, loadingObs, progressObs, cameraObs, microphoneObs]
-        if WebKitPrivate.canObservePlayingAudio {
-            kvoTokens[tabID] = [KeyValueToken(object: webView, keyPath: "_isPlayingAudio") { [weak self] value in
-                let playing = (value as? NSNumber)?.boolValue ?? false
-                Task { @MainActor [weak self] in
-                    guard let self, let index = self.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    if self.tabs[index].isPlayingAudio != playing { self.tabs[index].isPlayingAudio = playing }
-                }
-            }]
-        }
     }
 
     private func updateCaptureState(tabID: UUID, webView: WKWebView) {
@@ -995,8 +994,6 @@ public final class TabManager: NSObject, WKNavigationDelegate, WKUIDelegate, WKD
     private func removeObservations(for tabID: UUID) {
         webViewObservers[tabID]?.forEach { $0.invalidate() }
         webViewObservers.removeValue(forKey: tabID)
-        kvoTokens[tabID]?.forEach { $0.invalidate() }
-        kvoTokens.removeValue(forKey: tabID)
     }
 
     // MARK: - WKUIDelegate (новые окна и диалоги)

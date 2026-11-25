@@ -110,7 +110,8 @@ struct TabTreeNodeView: View {
         switch node {
         case .tab(let id):
             if let tab = tabManager.tabs.first(where: { $0.id == id }) {
-                TabRow(tab: tab, depth: depth, style: style, groupColor: groupColor)
+                TabRow(tab: tab, state: rowState(for: tab), depth: depth, style: style, groupColor: groupColor)
+                    .equatable()
                     .transition(.tabClose(edge: side == "right" ? .trailing : .leading))
             }
         case .folder(let folder):
@@ -137,6 +138,19 @@ struct TabTreeNodeView: View {
     }
 
     private var groupColor: Color? { nil }
+
+    private func rowState(for tab: TabModel) -> SidebarRowState {
+        let split = tabManager.splitPrimaryTabID == tab.id || tabManager.splitTabID == tab.id
+        return SidebarRowState(id: tab.id, title: tab.title, url: tab.url,
+                               contentKind: String(describing: tab.content),
+                               faviconToken: tab.favicon.map { ObjectIdentifier($0).hashValue },
+                               isHibernated: tab.isHibernated, isPinned: tab.isPinned,
+                               isPlayingAudio: tab.isPlayingAudio, isMuted: tab.isMuted,
+                               isCapturingMedia: tab.isCapturingMedia,
+                               isInPictureInPicture: tab.isInPictureInPicture,
+                               isActive: tabManager.activeTabID == tab.id,
+                               isSelected: tabManager.selectedTabIDs.contains(tab.id), isSplit: split)
+    }
 }
 
 // MARK: - Заголовок папки или группы
@@ -271,8 +285,9 @@ private struct FolderHeader: View {
 
 // MARK: - Строка вкладки
 
-struct TabRow: View {
+struct TabRow: View, Equatable {
     let tab: TabModel
+    let state: SidebarRowState
     let depth: Int
     let style: TabListStyle
     var groupColor: Color?
@@ -282,8 +297,12 @@ struct TabRow: View {
     @State private var targeted = false
     @State private var copied = false
 
-    private var isActive: Bool { tab.id == tabManager.activeTabID }
-    private var isSelected: Bool { tabManager.selectedTabIDs.contains(tab.id) }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.state == rhs.state && lhs.depth == rhs.depth && lhs.style == rhs.style && lhs.groupColor == rhs.groupColor
+    }
+
+    private var isActive: Bool { state.isActive }
+    private var isSelected: Bool { state.isSelected }
     private var mobile: Bool { style == .mobile }
 
     var body: some View {

@@ -25,9 +25,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "AircraftLanguage", resources: [.process("Resources")]),
+        .target(name: "AircraftCore", path: "Sources/AircraftCore"),
         .executableTarget(
             name: "aircraft",
-            dependencies: ["AircraftLanguage"],
+            dependencies: ["AircraftLanguage", "AircraftCore"],
             path: "Sources/EasyBrowser",
             exclude: ["Assets.xcassets"],
             linkerSettings: [
@@ -53,6 +54,10 @@ let package = Package(
         .testTarget(
             name: "AircraftTests",
             dependencies: ["aircraft"]
+        ),
+        .testTarget(
+            name: "AircraftCoreTests",
+            dependencies: ["AircraftCore"]
         )
     ]
 )

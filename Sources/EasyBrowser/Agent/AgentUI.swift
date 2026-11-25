@@ -248,6 +248,7 @@ struct AgentSettingsPane: View {
         .onChange(of: enabled) { _, _ in AgentServer.shared.applySettings() }
         .onReceive(NotificationCenter.default.publisher(for: .agentServerStateDidChange)) { _ in
             state = AgentServer.shared.state
+            token = AgentServer.token
         }
     }
 

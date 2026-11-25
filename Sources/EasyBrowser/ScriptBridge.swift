@@ -11,12 +11,14 @@ public protocol ScriptBridgeDelegate: AnyObject {
 @MainActor
 public final class ScriptBridge: NSObject, WKScriptMessageHandler {
     public static let messageHandlerName = "browserBridge"
+    static let modWorld = WKContentWorld.world(name: "AircraftMods")
     private static let modStorageKey = "aircraftModStorageV1"
     public weak var delegate: ScriptBridgeDelegate?
 
     public func configure(userContentController: WKUserContentController) {
-        userContentController.removeScriptMessageHandler(forName: Self.messageHandlerName)
-        userContentController.add(self, name: Self.messageHandlerName)
+        // SECURITY REVIEW: the controller retains only a weak proxy; teardown removes it explicitly.
+        userContentController.removeScriptMessageHandler(forName: Self.messageHandlerName, contentWorld: Self.modWorld)
+        userContentController.add(WeakScriptMessageHandler(self), contentWorld: Self.modWorld, name: Self.messageHandlerName)
 
         // Стабильный API для пользовательских модификаций.
         let storageJSON = Self.persistedStorageJSON()
@@ -72,7 +74,7 @@ public final class ScriptBridge: NSObject, WKScriptMessageHandler {
         let userScript = WKUserScript(
             source: scriptSource,
             injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
+            forMainFrameOnly: false, in: Self.modWorld
         )
         userContentController.addUserScript(userScript)
     }
@@ -143,23 +145,27 @@ public final class ScriptBridge: NSObject, WKScriptMessageHandler {
 
     /// Загрузка пользовательских JS-скриптов
     public func injectCustomScript(_ source: String, into userContentController: WKUserContentController, at injectionTime: WKUserScriptInjectionTime = .atDocumentEnd) {
-        let script = WKUserScript(source: source, injectionTime: injectionTime, forMainFrameOnly: true)
+        let script = WKUserScript(source: source, injectionTime: injectionTime, forMainFrameOnly: true, in: Self.modWorld)
         userContentController.addUserScript(script)
     }
 
+    static func removeHandler(from controller: WKUserContentController) {
+        controller.removeScriptMessageHandler(forName: messageHandlerName, contentWorld: modWorld)
+    }
+
     /// Загрузка пользовательских CSS-стилей
-    public func injectCSS(_ css: String, into userContentController: WKUserContentController) {
-        let escapedCSS = css
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: " ")
+    public func injectCSS(_ css: String, into userContentController: WKUserContentController, bundled: Bool = false) {
+        guard let data = try? JSONSerialization.data(withJSONObject: css, options: .fragmentsAllowed),
+              let escapedCSS = String(data: data, encoding: .utf8) else { return }
         let jsSource = """
         (function() {
             var style = document.createElement('style');
-            style.innerHTML = "\(escapedCSS)";
+            style.textContent = \(escapedCSS);
             document.head.appendChild(style);
         })();
         """
-        injectCustomScript(jsSource, into: userContentController, at: .atDocumentEnd)
+        if let guarded = ModCatalog.guardedSource(jsSource, bundled: bundled, matchSource: css) {
+            injectCustomScript(guarded, into: userContentController, at: .atDocumentEnd)
+        }
     }
 }
